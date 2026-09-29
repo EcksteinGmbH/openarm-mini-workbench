@@ -1633,7 +1633,11 @@ INDEX_HTML = """<!doctype html>
     <div class="steps">
       <div class="step" id="stepScan">
         <div class="num">1</div>
-        <div class="body"><b data-i18n="step_scan_title"></b><p data-i18n="step_scan_desc"></p></div>
+        <div class="body">
+          <b data-i18n="step_scan_title"></b>
+          <p data-i18n="step_scan_desc"></p>
+          <p data-i18n="step_scan_slow_note"></p>
+        </div>
         <button id="btnScan" data-i18n="btn_scan"></button>
       </div>
       <div class="step" id="stepWrite">
@@ -1712,6 +1716,8 @@ const I18N = {
     single_motor_warn: "安全前提：写 ID 时总线上只能挂当前这一颗电机。多颗同时在线会一起被改成同一个 ID。",
     step_scan_title: "扫描当前电机", step_scan_desc: "确认只有一颗在线，并读出它现在的 ID 和波特率。",
     btn_scan: "扫描",
+    btn_busy: "进行中… {sec}s",
+    step_scan_slow_note: "没有电机应答时，工作站会把 8 档波特率 × 254 个 ID 全试完才报错——本机实测约 105 秒。这段时间串口被占用，其他操作会报「串口正忙」。",
     step_write_title: "写入本步骤 ID 与 1000000 波特率",
     write_target: "目标：{title} → ID {id}，波特率 {baudrate}。",
     btn_write: "写入",
@@ -1799,6 +1805,8 @@ const I18N = {
     step_scan_title: "Scan the connected motor",
     step_scan_desc: "Confirm only one motor is online and read its current ID and baud rate.",
     btn_scan: "Scan",
+    btn_busy: "Working… {sec}s",
+    step_scan_slow_note: "When no motor answers, the workstation works through all 8 baud rates × 254 IDs before reporting a failure — measured at about 105 seconds on this bench. The serial port is held for that whole time, so other operations will report “port busy”.",
     step_write_title: "Write this step's ID and 1000000 baud",
     write_target: "Target: {title} → ID {id} at {baudrate} baud.",
     btn_write: "Write",
@@ -1886,6 +1894,8 @@ const I18N = {
     step_scan_title: "Angeschlossenen Motor scannen",
     step_scan_desc: "Bestätigen, dass nur ein Motor online ist, und dessen aktuelle ID und Baudrate lesen.",
     btn_scan: "Scannen",
+    btn_busy: "Läuft… {sec}s",
+    step_scan_slow_note: "Wenn kein Motor antwortet, arbeitet der Prüfplatz alle 8 Baudraten × 254 IDs durch, bevor er einen Fehler meldet — an diesem Prüfplatz gemessen etwa 105 Sekunden. Der serielle Port bleibt die ganze Zeit belegt, andere Vorgänge melden daher „Port belegt“.",
     step_write_title: "ID dieses Schritts und 1000000 Baud schreiben",
     write_target: "Ziel: {title} → ID {id} bei {baudrate} Baud.",
     btn_write: "Schreiben",
@@ -2014,6 +2024,29 @@ function applyLanguage(lang) {
   });
   $('btnFeedback').textContent = tf('btn_feedback', { sec: 8 });
   renderStages();
+}
+
+// 请求期间把按钮置灰并显示已耗时。没有这层，空跑一次扫描会让页面看起来卡死
+// 一分多钟（实测 105 秒），而且连点会直接撞上「串口正忙」。
+// 不改任何硬件路径，纯页面行为。
+async function withBusy(id, run) {
+  const button = $(id);
+  const original = button.textContent;
+  const started = Date.now();
+  const tick = () => {
+    button.textContent = tf('btn_busy', { sec: Math.round((Date.now() - started) / 1000) });
+  };
+  button.disabled = true;
+  tick();
+  const timer = setInterval(tick, 1000);
+  try {
+    await run();
+  } finally {
+    clearInterval(timer);
+    button.textContent = original;
+    // 分步按钮的可用性由 renderMotors() 按流程状态决定，这里只解除本次占用。
+    button.disabled = false;
+  }
 }
 
 function renderStages() {
@@ -2162,22 +2195,22 @@ $('showAllPorts').onchange = () => detectPorts({ force: true }).catch((e) => log
 $('profile').onchange = updateSupplyNote;
 $('side').onchange = () => { $('robotId').value = ''; renderStages(); };
 $('robotId').oninput = renderStages;
-$('suggestSerial').onclick = async () => {
+$('suggestSerial').onclick = () => withBusy('suggestSerial', async () => {
   try {
     const data = await api('/api/next-serial?side=' + encodeURIComponent($('side').value));
     $('robotId').value = data.robot_id;
     log(tf('log_suggested', { id: data.robot_id, count: data.known_count }), 'ok');
     renderStages();
   } catch (e) { log(e.message, 'bad'); }
-};
-$('reconnectPort').onclick = async () => {
+});
+$('reconnectPort').onclick = () => withBusy('reconnectPort', async () => {
   try {
     const data = await api('/api/reconnect-port', { port: port() });
     log(data.message, 'ok');
   } catch (e) { log(e.message, 'bad'); }
-};
+});
 
-$('btnScan').onclick = async () => {
+$('btnScan').onclick = () => withBusy('btnScan', async () => {
   try {
     requireBasics();
     const data = await api('/api/scan-current', { port: port(), hardware_profile: profile(), robot_id: robotId() });
@@ -2194,8 +2227,8 @@ $('btnScan').onclick = async () => {
     log(tf('log_scanned', { id: data.detected.id, baudrate: data.detected.baudrate }), 'ok');
   } catch (e) { note('motorResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
   renderMotors();
-};
-$('btnWrite').onclick = async () => {
+});
+$('btnWrite').onclick = () => withBusy('btnWrite', async () => {
   try {
     requireBasics();
     const data = await api('/api/init-id', {
@@ -2208,8 +2241,8 @@ $('btnWrite').onclick = async () => {
     log(data.message, 'ok');
   } catch (e) { note('motorResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
   renderMotors();
-};
-$('btnRescan').onclick = async () => {
+});
+$('btnRescan').onclick = () => withBusy('btnRescan', async () => {
   try {
     requireBasics();
     const expected = S.motors[currentMotor()];
@@ -2226,7 +2259,7 @@ $('btnRescan').onclick = async () => {
     log(e.message, 'bad');
   }
   renderMotors();
-};
+});
 $('btnFeedback').onclick = async () => {
   const button = $('btnFeedback');
   button.disabled = true; button.textContent = tr('btn_feedback_running');
@@ -2254,7 +2287,7 @@ $('btnFeedback').onclick = async () => {
   renderMotors();
 };
 
-$('btnScanAll').onclick = async () => {
+$('btnScanAll').onclick = () => withBusy('btnScanAll', async () => {
   try {
     requireBasics();
     const data = await api('/api/scan-all', { port: port(), robot_id: robotId() });
@@ -2274,9 +2307,9 @@ $('btnScanAll').onclick = async () => {
     log(tf('log_scan_all', { passed: data.passed, total: data.total }), data.overall_ok ? 'ok' : 'bad');
   } catch (e) { note('scanAllResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
   renderStages();
-};
+});
 
-$('btnPrecheck').onclick = async () => {
+$('btnPrecheck').onclick = () => withBusy('btnPrecheck', async () => {
   try {
     requireBasics();
     const data = await api('/api/calibration/precheck', { port: port(), robot_id: robotId() });
@@ -2296,8 +2329,8 @@ $('btnPrecheck').onclick = async () => {
       esc(data.note) + '</div>' + table;
     log(tf('log_precheck', { passed: data.passed, total: data.total }), data.overall_ok ? 'ok' : 'bad');
   } catch (e) { note('precheckResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
-};
-$('btnCalStart').onclick = async () => {
+});
+$('btnCalStart').onclick = () => withBusy('btnCalStart', async () => {
   try {
     requireBasics();
     const data = await api('/api/calibration/start', { port: port(), robot_id: robotId() });
@@ -2305,7 +2338,7 @@ $('btnCalStart').onclick = async () => {
     $('calOutput').hidden = false;
     pollCalibration();
   } catch (e) { note('calPrompt', 'bad', esc(e.message)); log(e.message, 'bad'); }
-};
+});
 $('btnCalAbort').onclick = async () => {
   try {
     const data = await api('/api/calibration/abort', { robot_id: robotId() });
@@ -2363,7 +2396,7 @@ function renderCalPrompt(status) {
     };
   }
 }
-$('btnVerify').onclick = async () => {
+$('btnVerify').onclick = () => withBusy('btnVerify', async () => {
   try {
     requireBasics();
     const data = await api('/api/verify-calibration', { port: port(), robot_id: robotId() });
@@ -2380,9 +2413,9 @@ $('btnVerify').onclick = async () => {
     log(tf('log_verify', { passed: data.passed, total: data.total }), data.overall_ok ? 'ok' : 'bad');
   } catch (e) { note('verifyResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
   renderStages();
-};
+});
 
-$('btnExport').onclick = async () => {
+$('btnExport').onclick = () => withBusy('btnExport', async () => {
   try {
     if (!robotId()) throw new Error(tr('err_need_serial'));
     const data = await api('/api/export?robot_id=' + encodeURIComponent(robotId()));
@@ -2398,7 +2431,7 @@ $('btnExport').onclick = async () => {
         : esc(tr('export_no_file'))));
     log(tf('log_exported', { count: data.record_count }), 'ok');
   } catch (e) { note('exportResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
-};
+});
 
 applyLanguage($('langSelect').value);
 loadConfig()
