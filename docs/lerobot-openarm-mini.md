@@ -7,6 +7,33 @@
 把 SO-101 工作站的做法照搬过来，会在现场问出根本不存在的确认、
 拦下完全正常的关节，并且漏掉真正该核对的字段。
 
+## 校准文件位置
+
+`Teleoperator.__init__`：
+
+```python
+self.calibration_dir = config.calibration_dir or (HF_LEROBOT_CALIBRATION / TELEOPERATORS / self.name)
+self.calibration_fpath = self.calibration_dir / f"{self.id}.json"
+```
+
+`self.name` = `"openarm_mini"`，所以默认是
+`<校准根>/teleoperators/openarm_mini/<编号>.json`。
+
+**校准根不是写死的**（`utils/constants.py`），优先级：
+
+1. `HF_LEROBOT_CALIBRATION`
+2. `HF_LEROBOT_HOME/calibration`
+3. `HF_HOME/lerobot/calibration`
+4. `$XDG_CACHE_HOME`（默认 `~/.cache`）`/huggingface/lerobot/calibration`
+
+文件内容是 `draccus.dump` 出的 `dict[电机名, MotorCalibration]`，
+字段为 `id` / `drive_mode` / `homing_offset` / `range_min` / `range_max`。
+
+其中 **`drive_mode` 不写进任何寄存器**——`write_calibration()` 只写
+`Homing_Offset`、`Min_Position_Limit`、`Max_Position_Limit` 三个。
+所以它无法与电机比对，只存在于文件里；官方自己的 `is_calibrated` 也只比这三项，
+`read_calibration()` 甚至恒返回 `drive_mode=0`。本工作站的一致性核对同样只比这三项。
+
 ## 电机键名与 ID
 
 ```python
@@ -99,8 +126,11 @@ GRIPPER_TELEOP_TO_DEGREES = -0.65
 顺序：切到电机当前波特率 → 关扭矩 → 写 `ID`(地址 5) → 写 `Baud_Rate`(地址 6) = 1,000,000。
 `setup_motors()` 用 `reversed(self.bus.motors)` 遍历，即 **夹爪 → joint_7 → … → joint_1**。
 
-本工作站在写之前多做一步解锁（`Lock`=0，地址 55），并在写完后
-强制**断电 5 秒复扫**——官方程序不做这两件事，但 ID 和波特率在 EEPROM 里，
+`setup_motor()` 里的 `_disable_torque()` **同时写 `Torque_Enable=0` 和 `Lock=0`**
+（`feetech.py`），所以解锁 EEPROM 是官方行为，不是本工作站的额外动作——
+本文档早先写成「官方不解锁」是错的，2026-09-29 核对上游源码时改正。
+
+本工作站真正多做的只有一件：写完后强制**断电 5 秒复扫**。ID 和波特率在 EEPROM 里，
 不断电复扫就无法区分「写进去了」和「只在本次上电周期生效」。
 
 ## 失败特征串

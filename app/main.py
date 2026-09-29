@@ -976,7 +976,30 @@ def read_session_records(robot_id: str) -> list[dict[str, Any]]:
 
 
 def _calibration_root() -> Path:
-    return Path.home() / ".cache/huggingface/lerobot/calibration"
+    """解析 LeRobot 存校准文件的根目录。
+
+    照抄 LeRobot `utils/constants.py` 的优先级：
+    `HF_LEROBOT_CALIBRATION` > `HF_LEROBOT_HOME/calibration` >
+    `HF_HOME/lerobot/calibration` > `XDG_CACHE_HOME`（默认 ~/.cache）
+    `/huggingface/lerobot/calibration`。
+
+    写死 ~/.cache 曾经是个真 bug：装机时把 HF_HOME 指到大盘是常见做法，
+    那样工作站会在错误的目录里找文件，给一台**已经校准**的臂报「未找到校准文件」，
+    或者更糟——拿一份过期的旧文件去核对。
+    """
+
+    explicit = os.getenv("HF_LEROBOT_CALIBRATION")
+    if explicit:
+        return Path(explicit).expanduser()
+    lerobot_home = os.getenv("HF_LEROBOT_HOME")
+    if lerobot_home:
+        return Path(lerobot_home).expanduser() / "calibration"
+    hf_home = os.getenv("HF_HOME")
+    if hf_home:
+        return Path(hf_home).expanduser() / "lerobot" / "calibration"
+    xdg_cache = os.getenv("XDG_CACHE_HOME")
+    base = Path(xdg_cache).expanduser() if xdg_cache else Path.home() / ".cache"
+    return base / "huggingface" / "lerobot" / "calibration"
 
 
 def _calibration_dir() -> Path:

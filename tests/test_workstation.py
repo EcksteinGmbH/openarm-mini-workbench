@@ -382,3 +382,61 @@ class PortDetectionTest(unittest.TestCase):
             self.assertIn("automatisch erkannt", main.detect_serial_port()["message"])
         finally:
             messages.set_language(messages.DEFAULT_LANGUAGE)
+
+
+class CalibrationRootTest(unittest.TestCase):
+    """校准目录必须跟 LeRobot 走同一套环境变量。
+
+    写死 ~/.cache 会让工作站在错误的目录里找文件——给一台已经校准的臂报
+    「未找到校准文件」，或者拿一份过期文件去核对并报出 8/8 合格。
+    优先级抄自 LeRobot utils/constants.py。
+    """
+
+    ENV_KEYS = ("HF_LEROBOT_CALIBRATION", "HF_LEROBOT_HOME", "HF_HOME", "XDG_CACHE_HOME")
+
+    def setUp(self) -> None:
+        self._saved = {k: main.os.environ.get(k) for k in self.ENV_KEYS}
+        for k in self.ENV_KEYS:
+            main.os.environ.pop(k, None)
+
+    def tearDown(self) -> None:
+        for k, v in self._saved.items():
+            if v is None:
+                main.os.environ.pop(k, None)
+            else:
+                main.os.environ[k] = v
+
+    def test_default_is_the_huggingface_cache(self) -> None:
+        self.assertEqual(
+            main._calibration_root(),
+            Path.home() / ".cache/huggingface/lerobot/calibration",
+        )
+
+    def test_xdg_cache_home_is_honoured(self) -> None:
+        # huggingface_hub 的 HF_HOME 默认就是 $XDG_CACHE_HOME/huggingface。
+        main.os.environ["XDG_CACHE_HOME"] = "/cache"
+        self.assertEqual(
+            main._calibration_root(), Path("/cache/huggingface/lerobot/calibration")
+        )
+
+    def test_hf_home_is_honoured(self) -> None:
+        main.os.environ["HF_HOME"] = "/data/hf"
+        self.assertEqual(main._calibration_root(), Path("/data/hf/lerobot/calibration"))
+
+    def test_lerobot_home_beats_hf_home(self) -> None:
+        main.os.environ["HF_HOME"] = "/data/hf"
+        main.os.environ["HF_LEROBOT_HOME"] = "/data/lr"
+        self.assertEqual(main._calibration_root(), Path("/data/lr/calibration"))
+
+    def test_explicit_calibration_dir_wins(self) -> None:
+        main.os.environ["HF_HOME"] = "/data/hf"
+        main.os.environ["HF_LEROBOT_HOME"] = "/data/lr"
+        main.os.environ["HF_LEROBOT_CALIBRATION"] = "/data/cal"
+        self.assertEqual(main._calibration_root(), Path("/data/cal"))
+
+    def test_teleoperator_subdirectory_matches_lerobot_layout(self) -> None:
+        # Teleoperator 基类：HF_LEROBOT_CALIBRATION / "teleoperators" / self.name
+        main.os.environ["HF_LEROBOT_CALIBRATION"] = "/data/cal"
+        self.assertEqual(
+            main._calibration_dir(), Path("/data/cal/teleoperators/openarm_mini")
+        )
