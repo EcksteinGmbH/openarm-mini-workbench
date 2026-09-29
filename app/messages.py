@@ -100,6 +100,18 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Could not open the serial port: {port}",
         "de": "Der serielle Port konnte nicht geöffnet werden: {port}",
     },
+    # 下拉框里排在最前面的是 32 个内核虚拟串口占位，误选它们就会走到这条，
+    # 所以这条必须直接说清该选哪个。
+    "port_open_failed_detail": {
+        "zh": "无法打开串口 {port}：{error}。请确认选的是 USB 适配器（条目以 /dev/serial/by-id/ 开头），而不是 /dev/ttyS0–ttyS31 这类内核虚拟串口；并确认适配器已插好、当前用户有串口读写权限。",
+        "en": "Could not open the serial port {port}: {error}. Make sure you picked the USB adapter (its entry starts with /dev/serial/by-id/) and not a kernel placeholder such as /dev/ttyS0–ttyS31, that the adapter is plugged in, and that the current user may read and write serial ports.",
+        "de": "Der serielle Port {port} konnte nicht geöffnet werden: {error}. Sicherstellen, dass der USB-Adapter gewählt ist (Eintrag beginnt mit /dev/serial/by-id/) und nicht ein Kernel-Platzhalter wie /dev/ttyS0–ttyS31, dass der Adapter eingesteckt ist und dass der aktuelle Benutzer serielle Ports lesen und schreiben darf.",
+    },
+    "set_baud_failed_detail": {
+        "zh": "设置波特率 {baudrate} 失败：{error}",
+        "en": "Failed to set the baud rate {baudrate}: {error}",
+        "de": "Baudrate {baudrate} konnte nicht gesetzt werden: {error}",
+    },
     "set_baud_failed": {
         "zh": "设置波特率失败：{baudrate}",
         "en": "Failed to set the baud rate: {baudrate}",

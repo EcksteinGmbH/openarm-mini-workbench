@@ -192,7 +192,17 @@ class FeetechSdkClient:
             raise RuntimeError(_m("port_busy"))
         self._holds_lock = True
         try:
-            if not self.port_handler.openPort():
+            # SDK 的 openPort() 走到 setupPort() 里直接 serial.Serial(...)，
+            # 打不开时**抛 pyserial 异常**而不是返回 False——照着返回值判会让
+            # 一句英文的 "Could not configure port" 直接穿到页面上，不走三语、
+            # 也不告诉操作员该选哪个串口。两种失败都收口到同一条文案。
+            try:
+                opened = self.port_handler.openPort()
+            except Exception as exc:  # noqa: BLE001
+                raise ConnectionError(
+                    _m("port_open_failed_detail", port=self.port, error=exc)
+                ) from exc
+            if not opened:
                 raise ConnectionError(_m("port_open_failed", port=self.port))
         except BaseException:
             self._release_lock()
@@ -213,7 +223,15 @@ class FeetechSdkClient:
             self._release_lock()
 
     def set_baudrate(self, baudrate: int) -> None:
-        if not self.port_handler.setBaudRate(baudrate):
+        # setBaudRate() 对不支持的值返回 False，但重新配置串口失败时同样抛
+        # pyserial 异常，所以两条路都要接。
+        try:
+            accepted = self.port_handler.setBaudRate(baudrate)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                _m("set_baud_failed_detail", baudrate=baudrate, error=exc)
+            ) from exc
+        if not accepted:
             raise RuntimeError(_m("set_baud_failed", baudrate=baudrate))
 
     def read_model_number(self, motor_id: int) -> int | None:

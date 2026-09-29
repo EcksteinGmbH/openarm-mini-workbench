@@ -12,11 +12,15 @@
 ## 启动
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 app/main.py --host 127.0.0.1 --port 8788
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app/main.py --host 127.0.0.1 --port 8788
 ```
 
 浏览器打开 `http://127.0.0.1:8788`。
+
+用系统 `python3` 直接启动也能开页面，但一点「扫描」就会报「未安装 scservo_sdk」——
+硬件层是**懒加载**的，缺依赖不会拦住服务启动，只会在第一次真的要跟电机说话时暴露。
 
 校准那一步需要另外一个装有 **含 `openarm_mini` 驱动的 LeRobot** 的环境
 （`pip install 'lerobot[feetech]'`）。LeRobot 刻意不是本工作站的依赖：
@@ -98,14 +102,20 @@ Mini 只有 leader 一种形态、只有 7.4V 一档，所以区分位留给左�
 ## 验证
 
 ```bash
-python3 -m compileall -q app
-python3 -m unittest discover -s tests
+.venv/bin/python -m compileall -q app
+.venv/bin/python -m unittest discover -s tests
 ```
 
-51 项单测，只锁可离线判定的规则：关节表与官方 ID 表一致、写 ID 顺序与驱动一致、
+57 项单测，只锁可离线判定的规则：关节表与官方 ID 表一致、写 ID 顺序与驱动一致、
 Feetech 符号位解码、编码器接缝展开、供电档位判据、编号规则、校准阶段提示串识别、
 失败特征串与处置一一对应、三语完整性。装有 `node` 时还会做一次内嵌 JS 语法检查。
-硬件行为在真机上验证，不在这里模拟。
+
+另有一组串口失败路径的测试，用一个不存在的设备路径复现，不需要硬件：
+串口打不开时必须抛出三语的 `ConnectionError`、必须在错误里说清该选哪个条目、
+并且**必须释放串口锁**——失败不放锁会让之后每一次操作都报「串口正忙」，
+只能重启服务才能恢复。用系统 `python3` 跑时这 6 项会自动跳过（缺 `scservo_sdk`）。
+
+电机在位时的真实行为仍在真机上验证，不在这里模拟。
 
 ## 验收门
 
@@ -115,6 +125,13 @@ ID 写入流程、校准子进程的阶段识别与作答。
 验收环境：OpenArm Mini 台架，STS3215 + Waveshare 驱动板 + 独立可调电源；
 写 ID 时一次只接一颗电机，八电机联调时再接全部。
 浏览器人工检查中 / 英 / 德三语流程。
+
+## 选串口
+
+下拉框里排在最前面的是 32 个 `/dev/ttyS0`–`/dev/ttyS31`，那是内核的虚拟串口占位，
+不是适配器。**要选以 `/dev/serial/by-id/` 开头的那一条**：它由 USB 序列号生成，
+拔插后不变；`/dev/ttyACM0` 这类内核名每次重新枚举都会变。
+选错时报的错会直接把这件事说清楚。
 
 ## 已知范围限制
 
