@@ -207,6 +207,12 @@ python3 -m venv .venv-lerobot
 选中的 LeRobot；装在项目内它看不见。详见
 [docs/official-comparison.md](docs/official-comparison.md) 的 A3。
 
+本机已按此安装（2026-09-29）：`.venv-lerobot/` 8.1G，`lerobot 0.4.4`（PyPI wheel，
+**含 `openarm_mini`**）。注意这台机器上「0.4.4」是歧义的：SO-ARM101 那个 venv 也叫
+0.4.4，但它是 `pip install -e` 装的
+`so-arm101-workbench/reference/lerobot/` 源码快照（取于 2026-08-07，早于
+`openarm_mini` 合并），因此**没有**这个驱动。引用版本时要连来源一起写。
+
 ## 已知范围限制
 
 - 归档脚本（从会话日志生成 Markdown/PDF 归档目录）尚未实现，第 5 步只导出 JSON。

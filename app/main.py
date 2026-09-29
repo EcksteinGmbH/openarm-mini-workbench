@@ -845,6 +845,43 @@ def feedback_test(
     }
 
 
+def evaluate_precheck_pose(present: int, homing: int) -> dict[str, Any]:
+    """单个关节的校准前判据。纯函数，好用现场实测的数值钉住。
+
+    **必须取模**：编码器是模 4096 的，扣掉一个已有的中点偏移完全可能落到
+    0..4095 之外，而那描述的是一个完全正常的姿态。漏了取模会把每一条已经
+    校准过的臂都拦下来——2026-09-29 现场就报出 `encoder=-1497` 并拦停了一个
+    摆在零位的关节，而 -1497 在 4096 计数的轮子上就是 2599。
+
+    两条拦截各对应官方程序真会中止的情形：
+    - `present > 4095`：多圈累计读数。断电重上电能让它回到单圈内。
+    - `|actual − 2047| > 2047`：偏移装不进 11 位符号-幅值寄存器。取模之后
+      只有 `actual == 4095` 这一个值能触发（偏移 2048），所以它是可达的，
+      不是纯防御性检查。
+    """
+
+    actual = (present + homing) % ENCODER_RESOLUTION
+    predicted_homing = actual - HALF_TURN
+    reason = ""
+    if present > STS3215_POS_MAX:
+        reason = _m("precheck_multiturn", present=present, max=STS3215_POS_MAX)
+    elif abs(predicted_homing) > HOMING_OFFSET_LIMIT:
+        reason = _m(
+            "precheck_offset_overflow",
+            actual=actual,
+            offset=predicted_homing,
+            limit=HOMING_OFFSET_LIMIT,
+        )
+    return {
+        "ok": not reason,
+        "present_position": present,
+        "homing_offset": homing,
+        "encoder_position": actual,
+        "predicted_homing_offset": predicted_homing,
+        "reason": reason,
+    }
+
+
 def precheck_calibration_poses(port: str) -> dict[str, Any]:
     """校准前只读预检：拦下单次读数真能证伪的那一件事。
 
@@ -875,29 +912,20 @@ def precheck_calibration_poses(port: str) -> dict[str, Any]:
                 present = client.read_present_position(motor_id)
                 phase = client.read_1byte(motor_id, ADDR_PHASE, "phase")
                 # 官方读的是 reset_calibration() 之后的值，等于机械编码器读数。
-                encoder = present + homing
-                blocked = not (STS3215_POS_MIN <= encoder <= STS3215_POS_MAX)
-                predicted_homing = encoder - HALF_TURN
-                if abs(predicted_homing) > HOMING_OFFSET_LIMIT:
-                    blocked = True
+                # **必须取模**：编码器是模 4096 的，扣掉一个已有的中点偏移完全
+                # 可能落到 0..4095 之外，而那描述的是一个正常姿态。漏了取模会把
+                # 每一条校准过的臂都拦下来——现场报出 encoder=-1497 就是这个 bug，
+                # -1497 在 4096 计数的轮子上就是 2599。
+                verdict = evaluate_precheck_pose(present, homing)
                 results.append(
                     {
-                        "ok": not blocked,
                         "motor_name": motor_name,
                         "motor_title": motor_title(motor_name),
                         "part": OPENARM_MINI_MOTORS[motor_name]["part"],
                         "motor_id": motor_id,
-                        "present_position": present,
-                        "homing_offset": homing,
-                        "encoder_position": encoder,
-                        "predicted_homing_offset": predicted_homing,
                         "phase": phase,
                         "angle_feedback_bit_set": bool(phase & PHASE_ANGLE_FEEDBACK_BIT),
-                        "reason": (
-                            _m("precheck_multiturn", encoder=encoder)
-                            if blocked
-                            else ""
-                        ),
+                        **verdict,
                     }
                 )
             except Exception as exc:  # noqa: BLE001

@@ -579,3 +579,67 @@ class _FakeScs:
     PKT_INSTRUCTION = 4
     PKT_ERROR = 4
     INST_PING = 1
+
+
+class PrecheckPoseTest(unittest.TestCase):
+    """校准前的单关节判据。
+
+    2026-09-29 现场回归：一个摆在零位的关节被报成
+    「折算编码器读数 -1497 超出单圈 0..4095，属多圈累计读数」并拦停。
+    原因是算 actual 时漏了取模——编码器是模 4096 的，扣掉一个已有的中点偏移
+    完全可能落到 0..4095 之外，那描述的是正常姿态。漏了取模会拦下每一条
+    已经校准过的臂。
+    """
+
+    def test_negative_wrap_is_a_normal_pose(self) -> None:
+        # 现场那一例：present 550 + homing -2047 = -1497，在 4096 的轮子上是 2599。
+        verdict = main.evaluate_precheck_pose(present=550, homing=-2047)
+        self.assertEqual(verdict["encoder_position"], 2599)
+        self.assertTrue(verdict["ok"], verdict["reason"])
+        self.assertEqual(verdict["reason"], "")
+
+    def test_archived_gripper_case_from_the_so101_bench(self) -> None:
+        # 2026-09-17 归档：夹爪 present 699、homing -1845，-1146 就是 2950。
+        verdict = main.evaluate_precheck_pose(present=699, homing=-1845)
+        self.assertEqual(verdict["encoder_position"], 2950)
+        self.assertTrue(verdict["ok"])
+
+    def test_positive_wrap_is_also_normal(self) -> None:
+        verdict = main.evaluate_precheck_pose(present=3000, homing=2000)
+        self.assertEqual(verdict["encoder_position"], (3000 + 2000) % 4096)
+        self.assertTrue(verdict["ok"])
+
+    def test_multi_turn_reading_is_blocked(self) -> None:
+        # SOL20260814101 在 ID4 读到 4776，官方校准中止；断电后恢复到 680。
+        verdict = main.evaluate_precheck_pose(present=4776, homing=0)
+        self.assertFalse(verdict["ok"])
+        self.assertIn("4776", verdict["reason"])
+
+    def test_offset_overflow_is_reachable_at_the_top_of_the_turn(self) -> None:
+        # actual == 4095 → 偏移 2048，装不进 11 位寄存器，官方会报
+        # "Magnitude 2048 exceeds 2047"。所以这条检查是可达的，不是纯防御。
+        verdict = main.evaluate_precheck_pose(present=4095, homing=0)
+        self.assertEqual(verdict["predicted_homing_offset"], 2048)
+        self.assertFalse(verdict["ok"])
+        self.assertIn("2048", verdict["reason"])
+
+    def test_bottom_of_the_turn_is_allowed(self) -> None:
+        # actual == 0 → 偏移 -2047，正好在寄存器能装下的边界上。
+        verdict = main.evaluate_precheck_pose(present=0, homing=0)
+        self.assertEqual(verdict["predicted_homing_offset"], -2047)
+        self.assertTrue(verdict["ok"])
+
+    def test_predicted_offset_matches_the_official_formula(self) -> None:
+        # feetech._get_half_turn_homings(): homing = pos - int((4096-1)/2)
+        for present in (0, 137, 2047, 2048, 4095):
+            with self.subTest(present=present):
+                verdict = main.evaluate_precheck_pose(present=present, homing=0)
+                self.assertEqual(verdict["predicted_homing_offset"], present - 2047)
+
+    def test_every_single_turn_pose_is_allowed_except_the_very_top(self) -> None:
+        # 取模之后唯一会被偏移检查拦下的就是 4095。
+        blocked = [
+            p for p in range(main.ENCODER_RESOLUTION)
+            if not main.evaluate_precheck_pose(present=p, homing=0)["ok"]
+        ]
+        self.assertEqual(blocked, [4095])

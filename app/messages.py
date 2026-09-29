@@ -287,9 +287,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     # ---------- 校准预检 ----------
     "precheck_multiturn": {
-        "zh": "折算编码器读数 {encoder} 超出单圈 0..4095，属多圈累计读数。断电 5 秒后重新上电再预检。",
-        "en": "The derived encoder reading {encoder} lies outside the single turn 0..4095, which means a multi-turn accumulated reading. Power down for 5 seconds, power up and precheck again.",
-        "de": "Der abgeleitete Encoderwert {encoder} liegt außerhalb der einzelnen Umdrehung 0..4095, also ein mehrfach akkumulierter Wert. 5 Sekunden ausschalten, wieder einschalten und erneut prüfen.",
+        "zh": "电机报出的位置 {present} 超过一圈（{max}），属于多圈累计读数，官方校准会因中点偏移超限而中止。关闭 OUTPUT 超过 5 秒后重新上电，再重新预检。",
+        "en": "The motor reports position {present}, beyond one turn ({max}). That is a multi-turn accumulated reading and the official calibration will abort on an out-of-range homing offset. Switch OUTPUT off for more than 5 seconds, power up and precheck again.",
+        "de": "Der Motor meldet Position {present}, mehr als eine Umdrehung ({max}). Das ist ein mehrfach akkumulierter Wert, und die offizielle Kalibrierung bricht wegen eines unzulässigen Mittelpunkt-Offsets ab. OUTPUT länger als 5 Sekunden ausschalten, wieder einschalten und erneut prüfen.",
+    },
+    "precheck_offset_overflow": {
+        "zh": "该关节停在机械位置 {actual}，校准需要写入的中点偏移为 {offset}，超过电机允许的 ±{limit}。关闭 OUTPUT 超过 5 秒后重新上电，再重新预检。",
+        "en": "This joint sits at mechanical position {actual}; calibration would have to write a homing offset of {offset}, beyond the ±{limit} the motor allows. Switch OUTPUT off for more than 5 seconds, power up and precheck again.",
+        "de": "Dieses Gelenk steht an der mechanischen Position {actual}; die Kalibrierung müsste einen Mittelpunkt-Offset von {offset} schreiben, mehr als die vom Motor erlaubten ±{limit}. OUTPUT länger als 5 Sekunden ausschalten, wieder einschalten und erneut prüfen.",
     },
     "precheck_note": {
         "zh": "零位姿态要求：整臂自然下垂、夹爪闭合。关节量程由驱动写死为整圈，不需要停放在行程中点。",
