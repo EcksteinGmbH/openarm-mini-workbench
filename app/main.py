@@ -1399,8 +1399,31 @@ def _executable_python(executable: str) -> str | None:
     return str(sibling) if os.access(sibling, os.X_OK) else None
 
 
-def lerobot_supports_openarm_mini(executable: str) -> bool | None:
-    """这套 LeRobot 里有没有 openarm_mini 驱动。None 表示探测不出来。"""
+# 光看模块存在是不够的：openarm_mini 有两代互不兼容的设计。
+# 已发布的 PyPI 0.4.4 是**双臂版**（配置只有 port_right / port_left，校准要两条臂
+# 同时接、校准键名带 right_/left_ 前缀）；上游 main 才是官方硬件 README 写的
+# **单臂版**（port + side）。只判模块存在会报「支持」，然后校准死在 draccus 的
+# `The fields \`port\` are not valid for OpenArmMiniConfig` 上——2026-09-29 现场
+# 就是这么退出码 1 的。按配置字段分辨代次。
+_PROBE_SOURCE = (
+    "import dataclasses, importlib.util as u, sys\n"
+    "if u.find_spec('lerobot.teleoperators.openarm_mini') is None: sys.exit(3)\n"
+    "from lerobot.teleoperators.openarm_mini import OpenArmMiniConfig\n"
+    "names = {f.name for f in dataclasses.fields(OpenArmMiniConfig)}\n"
+    "sys.exit(0 if 'port' in names else 4)\n"
+)
+PROBE_SINGLE_ARM = "single_arm"
+PROBE_DUAL_ARM = "dual_arm"
+PROBE_MISSING = "missing"
+_PROBE_EXIT_CODES = {0: PROBE_SINGLE_ARM, 3: PROBE_MISSING, 4: PROBE_DUAL_ARM}
+
+
+def probe_openarm_mini_driver(executable: str) -> str | None:
+    """这套 LeRobot 装的是哪一代 openarm_mini。None 表示探测不出来。
+
+    真去 import 一次（约 4 秒，按可执行文件路径与 mtime 缓存）。只看源码文本
+    分辨不了 editable 安装、补丁或第三方插件覆盖的情况。
+    """
 
     try:
         stamp = Path(executable).stat().st_mtime
@@ -1415,22 +1438,22 @@ def lerobot_supports_openarm_mini(executable: str) -> bool | None:
         return None
     try:
         completed = subprocess.run(  # noqa: S603
-            [
-                interpreter,
-                "-c",
-                "import importlib.util as u, sys; "
-                "sys.exit(0 if u.find_spec('lerobot.teleoperators.openarm_mini') else 3)",
-            ],
-            capture_output=True,
-            timeout=30,
+            [interpreter, "-c", _PROBE_SOURCE], capture_output=True, timeout=120
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if completed.returncode not in (0, 3):
+    verdict = _PROBE_EXIT_CODES.get(completed.returncode)
+    if verdict is None:
         return None
-    supported = completed.returncode == 0
-    _TELEOP_SUPPORT_CACHE[key] = supported
-    return supported
+    _TELEOP_SUPPORT_CACHE[key] = verdict
+    return verdict
+
+
+def lerobot_supports_openarm_mini(executable: str) -> bool | None:
+    """能不能按官方硬件 README 的单臂命令跑校准。"""
+
+    verdict = probe_openarm_mini_driver(executable)
+    return None if verdict is None else verdict == PROBE_SINGLE_ARM
 
 
 # 官方程序可能停在的失败点，每条都配一个操作员在台架上就能做完的处置。
@@ -1576,7 +1599,12 @@ class CalibrationSession:
         executable = resolve_lerobot_calibrate()["path"] or None
         if executable is None:
             raise RuntimeError(_m("calibrate_not_found"))
-        if lerobot_supports_openarm_mini(executable) is False:
+        verdict = probe_openarm_mini_driver(executable)
+        if verdict == PROBE_DUAL_ARM:
+            raise RuntimeError(
+                _m("calibrate_dual_arm_generation", executable=executable)
+            )
+        if verdict == PROBE_MISSING:
             raise RuntimeError(_m("calibrate_no_driver", executable=executable))
         with self._lock:
             if self._is_running():
@@ -1994,6 +2022,7 @@ const I18N = {
     rescan_fail: "复扫失败：{error}<br/>如果这一步失败，说明设置没有写进 EEPROM，请重新执行第 2 步。",
     feedback_ok: "反馈正常：{samples} 次采样，行程跨度 {span} 计数（{min}–{max}），温度 {temp}℃。",
     feedback_wrap_note: "本次摆动跨过了编码器 0 点，属正常——驱动给 joint_1..joint_7 写死整圈量程。",
+    cal_dual_arm: "找到的 <code>{exe}</code> 装的是<b>已发布的双臂版</b> openarm_mini 驱动（配置只有 port_right / port_left，不接受 --teleop.port，校准要两条臂同时接、键名带 right_/left_ 前缀）。官方硬件 README 写的是单臂形式，那要上游 main 的驱动，PyPI 尚未发布。第 4 步会被拦下。",
     cal_missing_exec: "未找到 <code>lerobot-calibrate</code>，第 4 步无法启动官方校准。请先在一个装有 openarm_mini 驱动的环境里安装 LeRobot。",
     cal_no_driver: "找到的 <code>{exe}</code> 所在环境<b>没有 openarm_mini 驱动</b>（它是较新版本才加入 LeRobot 的）。第 4 步会被拦下。请升级该环境的 LeRobot，或把工作站指向装有它的虚拟环境。",
     cal_unknown_support: "无法确认 <code>{exe}</code> 是否带 openarm_mini 驱动，第 4 步仍可尝试；若被 argparse 顶回来，看处置建议。",
@@ -2088,6 +2117,7 @@ const I18N = {
     rescan_fail: "Rescan failed: {error}<br/>A failure here means the settings never reached EEPROM. Run step 2 again.",
     feedback_ok: "Feedback is good: {samples} samples, travel span {span} counts ({min}–{max}), temperature {temp}°C.",
     feedback_wrap_note: "This sweep crossed encoder zero, which is normal — the driver hardcodes a full turn for joint_1..joint_7.",
+    cal_dual_arm: "The <code>{exe}</code> that was found carries the <b>released dual-arm generation</b> of the openarm_mini driver (its config only offers port_right / port_left, it does not accept --teleop.port, calibration needs both arms connected and the keys carry right_/left_ prefixes). The official hardware README documents the single-arm form, which needs the upstream main driver that PyPI has not released. Step 4 will be refused.",
     cal_missing_exec: "<code>lerobot-calibrate</code> was not found, so step 4 cannot start the official calibration. Install LeRobot in an environment that has the openarm_mini driver.",
     cal_no_driver: "The environment behind <code>{exe}</code> <b>has no openarm_mini driver</b> (it was only added to LeRobot in a newer version). Step 4 will be refused. Upgrade LeRobot there, or point the workstation at the virtualenv that has it.",
     cal_unknown_support: "Could not confirm whether <code>{exe}</code> carries the openarm_mini driver. Step 4 can still be attempted; if argparse refuses it, read the remedy.",
@@ -2182,6 +2212,7 @@ const I18N = {
     rescan_fail: "Erneuter Scan fehlgeschlagen: {error}<br/>Ein Fehler hier bedeutet, dass die Einstellungen nie im EEPROM angekommen sind. Schritt 2 erneut ausführen.",
     feedback_ok: "Rückmeldung in Ordnung: {samples} Messpunkte, Wegspanne {span} Zählschritte ({min}–{max}), Temperatur {temp}°C.",
     feedback_wrap_note: "Diese Bewegung hat den Encoder-Nullpunkt überschritten, das ist normal — der Treiber legt für joint_1..joint_7 eine ganze Umdrehung fest.",
+    cal_dual_arm: "Das gefundene <code>{exe}</code> enthält die <b>veröffentlichte Zweiarm-Generation</b> des openarm_mini-Treibers (Konfiguration nur mit port_right / port_left, kein --teleop.port, die Kalibrierung benötigt beide Arme, und die Schlüssel tragen die Präfixe right_/left_). Das offizielle Hardware-README beschreibt die Einarm-Form, die den Upstream-main-Treiber benötigt, den PyPI nicht veröffentlicht hat. Schritt 4 wird abgelehnt.",
     cal_missing_exec: "<code>lerobot-calibrate</code> wurde nicht gefunden, Schritt 4 kann die offizielle Kalibrierung nicht starten. LeRobot in einer Umgebung mit dem openarm_mini-Treiber installieren.",
     cal_no_driver: "Die Umgebung hinter <code>{exe}</code> <b>hat keinen openarm_mini-Treiber</b> (er wurde erst in einer neueren LeRobot-Version ergänzt). Schritt 4 wird abgelehnt. Dort LeRobot aktualisieren oder den Prüfplatz auf die passende virtuelle Umgebung verweisen.",
     cal_unknown_support: "Es ließ sich nicht feststellen, ob <code>{exe}</code> den openarm_mini-Treiber enthält. Schritt 4 kann trotzdem versucht werden; falls argparse ablehnt, den Hinweis lesen.",
@@ -2375,6 +2406,8 @@ function renderCalSupport() {
   }
   if (!cal.available) {
     note('calPrompt', 'warn', tr('cal_missing_exec'));
+  } else if (cal.driver_generation === 'dual_arm') {
+    note('calPrompt', 'bad', tf('cal_dual_arm', { exe: esc(cal.executable) }));
   } else if (cal.openarm_mini_supported === false) {
     note('calPrompt', 'bad', tf('cal_no_driver', { exe: esc(cal.executable) }));
   } else if (cal.openarm_mini_supported === null) {
@@ -2799,6 +2832,11 @@ class AppHandler(BaseHTTPRequestHandler):
                             lerobot_supports_openarm_mini(executable)
                             if executable is not None
                             else False
+                        ),
+                        "driver_generation": (
+                            probe_openarm_mini_driver(executable)
+                            if executable is not None
+                            else PROBE_MISSING
                         ),
                         "flags": [
                             "--teleop.type=openarm_mini",

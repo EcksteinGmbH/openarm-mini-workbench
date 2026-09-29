@@ -376,6 +376,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "The LeRobot environment behind {executable} has no openarm_mini driver; starting it would only come back as an argparse “invalid choice”. Upgrade to a LeRobot that includes the driver, or point the workstation at the virtualenv that has it.",
         "de": "Die LeRobot-Umgebung hinter {executable} enthält keinen openarm_mini-Treiber; ein Start würde nur mit einem argparse-„invalid choice“ zurückkommen. Auf ein LeRobot mit diesem Treiber aktualisieren oder den Arbeitsplatz auf die passende virtuelle Umgebung verweisen.",
     },
+    "calibrate_dual_arm_generation": {
+        "zh": "{executable} 装的是**已发布的双臂版** openarm_mini 驱动：它的配置只有 port_right / port_left，不接受 --teleop.port，校准时必须两条臂同时接上，校准文件的键名还带 right_ / left_ 前缀。官方硬件 README 写的是单臂形式（--teleop.port），那要上游 main 的驱动，PyPI 尚未发布。请在该环境里从 git 装上游 main，或改用支持单臂驱动的环境。",
+        "en": "{executable} has the released dual-arm generation of the openarm_mini driver: its config only offers port_right / port_left, it does not accept --teleop.port, calibration requires both arms connected at once, and the calibration keys carry right_ / left_ prefixes. The official hardware README documents the single-arm form (--teleop.port), which needs the upstream main driver that PyPI has not released yet. Install upstream main from git into that environment, or point the workstation at one that has the single-arm driver.",
+        "de": "{executable} enthält die veröffentlichte Zweiarm-Generation des openarm_mini-Treibers: Seine Konfiguration bietet nur port_right / port_left, akzeptiert kein --teleop.port, die Kalibrierung setzt beide Arme gleichzeitig voraus, und die Kalibrierschlüssel tragen die Präfixe right_ / left_. Das offizielle Hardware-README beschreibt die Einarm-Form (--teleop.port), die den Upstream-main-Treiber benötigt, den PyPI noch nicht veröffentlicht hat. Upstream main per git in diese Umgebung installieren oder den Arbeitsplatz auf eine Umgebung mit dem Einarm-Treiber verweisen.",
+    },
     "calibration_already_running": {
         "zh": "已有校准进程在运行，请先完成或中止。",
         "en": "A calibration process is already running. Finish or abort it first.",

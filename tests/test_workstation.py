@@ -643,3 +643,59 @@ class PrecheckPoseTest(unittest.TestCase):
             if not main.evaluate_precheck_pose(present=p, homing=0)["ok"]
         ]
         self.assertEqual(blocked, [4095])
+
+
+class DriverGenerationTest(unittest.TestCase):
+    """openarm_mini 有两代互不兼容的设计，必须分辨。
+
+    2026-09-29 现场：装上 PyPI 0.4.4 后探测报「支持」，点开始校准却退出码 1，
+    draccus 报 `The fields \\`port\\` are not valid for OpenArmMiniConfig`。
+    已发布的那代是双臂版（port_right / port_left），官方硬件 README 写的单臂
+    形式（--teleop.port）只有上游 main 才有。只判模块存在是不够的。
+    """
+
+    def test_exit_codes_cover_the_three_verdicts(self) -> None:
+        self.assertEqual(
+            main._PROBE_EXIT_CODES,
+            {0: main.PROBE_SINGLE_ARM, 3: main.PROBE_MISSING, 4: main.PROBE_DUAL_ARM},
+        )
+
+    def test_probe_source_decides_by_config_field(self) -> None:
+        # 判据必须是配置里有没有 port 字段，不是模块存不存在。
+        self.assertIn("OpenArmMiniConfig", main._PROBE_SOURCE)
+        self.assertIn("'port' in names", main._PROBE_SOURCE)
+
+    def test_only_the_single_arm_generation_counts_as_supported(self) -> None:
+        original = main.probe_openarm_mini_driver
+        try:
+            for verdict, expected in (
+                (main.PROBE_SINGLE_ARM, True),
+                (main.PROBE_DUAL_ARM, False),
+                (main.PROBE_MISSING, False),
+                (None, None),
+            ):
+                with self.subTest(verdict=verdict):
+                    main.probe_openarm_mini_driver = lambda _p, v=verdict: v  # type: ignore[assignment]
+                    self.assertIs(main.lerobot_supports_openarm_mini("/x"), expected)
+        finally:
+            main.probe_openarm_mini_driver = original  # type: ignore[assignment]
+
+    def test_dual_arm_has_its_own_message(self) -> None:
+        # 笼统报「没有驱动」会让人去重装一个装了也不行的东西。
+        self.assertIn("calibrate_dual_arm_generation", messages.MESSAGES)
+        for lang in messages.LANGUAGES:
+            messages.set_language(lang)
+            text = messages.m("calibrate_dual_arm_generation", executable="/x")
+            with self.subTest(lang=lang):
+                self.assertIn("port_right", text)
+                self.assertIn("/x", text)
+        messages.set_language(messages.DEFAULT_LANGUAGE)
+
+    def test_probe_of_a_real_environment_returns_a_known_verdict(self) -> None:
+        exe = Path(main._project_root()) / ".venv-lerobot" / "bin" / "lerobot-calibrate"
+        if not exe.is_file():
+            self.skipTest("本机没有 .venv-lerobot")
+        self.assertIn(
+            main.probe_openarm_mini_driver(str(exe)),
+            {main.PROBE_SINGLE_ARM, main.PROBE_DUAL_ARM, main.PROBE_MISSING},
+        )
