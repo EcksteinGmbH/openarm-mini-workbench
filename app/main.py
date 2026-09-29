@@ -832,21 +832,81 @@ def _stable_port_aliases() -> dict[str, str]:
     return aliases
 
 
-def list_serial_ports() -> list[dict[str, str]]:
+# 内核给每个板载 UART 都建一个 /dev/ttyS* 节点，插没插东西都在——本机就有 32 个。
+# 让操作员在 33 条里找出那一条适配器，是选错串口的主要来源。真适配器有 USB 身份
+# （vid/pid），并且 udev 会给它建 /dev/serial/by-id 别名；两者都不满足的就不是候选。
+def _is_usb_adapter(info: Any, stable_alias: str) -> bool:
+    if stable_alias:
+        return True
+    if getattr(info, "vid", None) is not None:
+        return True
+    return bool(re.match(r"^tty(USB|ACM)\d+$", Path(info.device).name))
+
+
+def list_serial_ports() -> list[dict[str, Any]]:
     aliases = _stable_port_aliases()
     ports = []
     for p in list_ports.comports():
         stable = aliases.get(str(Path(p.device).resolve()), "")
+        device = stable or p.device
         ports.append(
             {
-                "device": stable or p.device,
+                "device": device,
                 "kernel_device": p.device,
                 "stable_device": stable,
                 "description": p.description,
                 "hwid": p.hwid,
+                "serial_number": p.serial_number or "",
+                "product": p.product or "",
+                "is_adapter": _is_usb_adapter(p, stable),
+                # 权限不足时 openPort() 会抛异常，提前说比等它失败有用。
+                "writable": os.access(p.device, os.R_OK | os.W_OK),
             }
         )
+    # 候选排前面，操作员不用滚动
+    ports.sort(key=lambda entry: (not entry["is_adapter"], entry["device"]))
     return ports
+
+
+def detect_serial_port() -> dict[str, Any]:
+    """挑出那一个 USB 串口适配器。
+
+    只有一个候选时直接给出它，页面不必让人选。多个候选时不猜——两条臂的
+    适配器同时插着是正常的工位状态，猜错会把 ID 写到另一条臂上。
+    """
+
+    ports = list_serial_ports()
+    candidates = [entry for entry in ports if entry["is_adapter"]]
+
+    if not candidates:
+        status, port, message = "none", "", _m("port_detect_none")
+    elif len(candidates) == 1:
+        chosen = candidates[0]
+        status, port = "one", chosen["device"]
+        message = _m(
+            "port_detect_one",
+            description=chosen["description"] or chosen["device"],
+            serial=chosen["serial_number"] or "-",
+        )
+    else:
+        status, port = "many", ""
+        message = _m("port_detect_many", count=len(candidates))
+
+    warnings = [
+        _m("port_not_writable", port=entry["kernel_device"])
+        for entry in candidates
+        if not entry["writable"]
+    ]
+    return {
+        "ok": True,
+        "status": status,
+        "port": port,
+        "message": message,
+        "warnings": warnings,
+        "candidates": candidates,
+        "ports": ports,
+        "total": len(ports),
+    }
 
 
 def reconnect_port(port: str) -> dict[str, Any]:
@@ -1495,6 +1555,8 @@ INDEX_HTML = """<!doctype html>
   .log { font-size: 12.5px; max-height: 220px; overflow: auto; }
   .log div { padding: 3px 0; border-bottom: 1px dashed var(--line); color: var(--muted); }
   code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  label.inline { display: flex; gap: 6px; align-items: center; font-size: 12.5px;
+    color: var(--muted); white-space: nowrap; padding-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -1546,13 +1608,20 @@ INDEX_HTML = """<!doctype html>
       </div>
       <div class="field tight">
         <label>&nbsp;</label>
-        <button class="ghost" id="refreshPorts" data-i18n="btn_refresh_ports"></button>
+        <button class="ghost" id="refreshPorts" data-i18n="btn_redetect"></button>
       </div>
       <div class="field tight">
         <label>&nbsp;</label>
         <button class="ghost" id="reconnectPort" data-i18n="btn_reconnect"></button>
       </div>
+      <div class="field tight">
+        <label class="inline">
+          <input type="checkbox" id="showAllPorts" />
+          <span data-i18n="port_show_all"></span>
+        </label>
+      </div>
     </div>
+    <div id="portNote" class="note info"></div>
     <div id="supplyNote" class="note info"></div>
   </section>
 
@@ -1632,7 +1701,11 @@ const I18N = {
     card_prep_hint: "选左右臂、生成编号、确认供电档位和串口。后面每一步都靠这四项。",
     f_side: "臂侧", side_left: "左臂 Left", side_right: "右臂 Right",
     f_robot_id: "机械臂编号", btn_suggest: "推荐编号", f_profile: "供电档位", f_port: "串口",
-    btn_refresh_ports: "刷新串口", btn_reconnect: "重连测试",
+    btn_redetect: "重新识别", btn_reconnect: "重连测试",
+    port_show_all: "显示全部串口",
+    port_placeholder_tag: "（内核占位，不是适配器）",
+    port_manual_hint: "手动模式：列出全部 {total} 个串口节点，其中只有 {count} 个是 USB 适配器。",
+    port_unplugged: "原先选中的 {port} 已经不在了，适配器可能被拔掉或重新枚举了。",
     supply_note: "本档位期望实测 <b>{expected}V</b>（限流 {limit}A）。扫描、写 ID 前工作站会读电机实际电压比对，偏差超过 1.0V 或超过额定 {rated}V 直接拒绝执行。工作站只记录档位，改不了实体电源——仍需人工核对红正黑负、OCP 关闭和 OUTPUT 状态。",
     card_ids_title: "2 · 逐颗写 ID 与只读质检",
     card_ids_hint: "官方 <code>setup_motors()</code> 从夹爪倒着走到肩部。<b>每次只连接一颗电机</b>，四步全部通过才进入下一颗。",
@@ -1687,7 +1760,9 @@ const I18N = {
     export_done: "已导出 {count} 条记录。", export_with_file: "含校准文件 <code>{file}</code>。",
     export_no_file: "本次尚未生成校准文件。",
     log_ready: "工作站就绪。",
-    log_ports: "串口列表已刷新，共 {count} 个。",
+    log_port_detected: "已识别串口 {port}",
+    log_port_none: "未检测到 USB 串口适配器",
+    log_port_many: "检测到 {count} 个 USB 串口适配器，请手动选择",
     log_suggested: "推荐编号 {id}（已扫描 {count} 个在用编号）",
     log_scanned: "扫描到 ID={id} @ {baudrate}",
     log_rescanned: "复扫通过 ID={id}",
@@ -1712,7 +1787,11 @@ const I18N = {
     f_side: "Arm side", side_left: "Left arm", side_right: "Right arm",
     f_robot_id: "Arm serial", btn_suggest: "Suggest serial", f_profile: "Supply profile",
     f_port: "Serial port",
-    btn_refresh_ports: "Refresh ports", btn_reconnect: "Test reconnect",
+    btn_redetect: "Detect again", btn_reconnect: "Test reconnect",
+    port_show_all: "Show all ports",
+    port_placeholder_tag: "(kernel placeholder, not an adapter)",
+    port_manual_hint: "Manual mode: all {total} serial nodes are listed, of which only {count} are USB adapters.",
+    port_unplugged: "The previously selected {port} is gone — the adapter may have been unplugged or re-enumerated.",
     supply_note: "This profile expects a measured <b>{expected}V</b> (current limit {limit}A). Before every scan and ID write the workstation reads the actual motor voltage and compares: a deviation above 1.0V, or anything above the {rated}V rating, is refused outright. The workstation only records the profile — it cannot change the physical supply, so still check polarity, that OCP is off, and the OUTPUT state by hand.",
     card_ids_title: "2 · Write IDs and read-only QC",
     card_ids_hint: "The official <code>setup_motors()</code> walks backwards from the gripper to the shoulder. <b>Connect one motor at a time</b>; all four steps must pass before the next motor.",
@@ -1768,7 +1847,9 @@ const I18N = {
     export_done: "Exported {count} records.", export_with_file: "Includes calibration file <code>{file}</code>.",
     export_no_file: "No calibration file has been produced yet.",
     log_ready: "Workstation ready.",
-    log_ports: "Port list refreshed, {count} found.",
+    log_port_detected: "Detected serial port {port}",
+    log_port_none: "No USB serial adapter detected",
+    log_port_many: "{count} USB serial adapters detected — pick one manually",
     log_suggested: "Suggested serial {id} ({count} serials already in use)",
     log_scanned: "Found ID={id} @ {baudrate}",
     log_rescanned: "Rescan passed for ID={id}",
@@ -1793,7 +1874,11 @@ const I18N = {
     f_side: "Armseite", side_left: "Linker Arm", side_right: "Rechter Arm",
     f_robot_id: "Arm-Seriennummer", btn_suggest: "Seriennummer vorschlagen",
     f_profile: "Versorgungsprofil", f_port: "Serieller Port",
-    btn_refresh_ports: "Ports aktualisieren", btn_reconnect: "Verbindung testen",
+    btn_redetect: "Erneut erkennen", btn_reconnect: "Verbindung testen",
+    port_show_all: "Alle Ports anzeigen",
+    port_placeholder_tag: "(Kernel-Platzhalter, kein Adapter)",
+    port_manual_hint: "Manueller Modus: alle {total} seriellen Knoten werden aufgelistet, davon sind nur {count} USB-Adapter.",
+    port_unplugged: "Der zuvor gewählte Port {port} ist nicht mehr vorhanden — der Adapter wurde möglicherweise abgezogen oder neu erkannt.",
     supply_note: "Dieses Profil erwartet gemessene <b>{expected}V</b> (Strombegrenzung {limit}A). Vor jedem Scan und jedem ID-Schreibvorgang liest der Prüfplatz die tatsächliche Motorspannung und vergleicht: eine Abweichung über 1,0V oder ein Wert über der Nennspannung von {rated}V wird direkt abgelehnt. Der Prüfplatz protokolliert nur das Profil und kann das Netzteil nicht ändern — Polarität, ausgeschaltete OCP und OUTPUT-Zustand bleiben manuell zu prüfen.",
     card_ids_title: "2 · IDs schreiben und Nur-Lese-Prüfung",
     card_ids_hint: "Das offizielle <code>setup_motors()</code> läuft vom Greifer rückwärts zur Schulter. <b>Immer nur einen Motor anschließen</b>; erst wenn alle vier Schritte bestanden sind, folgt der nächste Motor.",
@@ -1850,7 +1935,9 @@ const I18N = {
     export_with_file: "Enthält die Kalibrierdatei <code>{file}</code>.",
     export_no_file: "Es wurde noch keine Kalibrierdatei erzeugt.",
     log_ready: "Prüfplatz bereit.",
-    log_ports: "Portliste aktualisiert, {count} gefunden.",
+    log_port_detected: "Serieller Port {port} erkannt",
+    log_port_none: "Kein USB-Seriell-Adapter erkannt",
+    log_port_many: "{count} USB-Seriell-Adapter erkannt — bitte manuell wählen",
     log_suggested: "Vorgeschlagene Seriennummer {id} ({count} bereits belegt)",
     log_scanned: "ID={id} @ {baudrate} gefunden",
     log_rescanned: "Erneuter Scan für ID={id} bestanden",
@@ -1871,6 +1958,7 @@ const S = {
   step: { scanned: false, written: false, rescanned: false, tested: false },
   doneMotors: new Set(), scannedAll: false, precheckOk: false, verified: false,
   lastScan: null, calTimer: null, calSupport: undefined,
+  detect: null, portSignature: "", portTimer: null,
 };
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -2012,23 +2100,65 @@ function updateSupplyNote() {
     rated: p.motor_rated_voltage_v,
   });
 }
-async function loadPorts() {
-  const data = await api('/api/ports');
+// 自动识别串口。本机有 32 个 /dev/ttyS* 内核占位节点，只有 1 个是适配器，
+// 让操作员在 33 条里挑是选错串口的主要来源。
+async function detectPorts(options) {
+  const opts = options || {};
+  const data = await api('/api/detect-port');
+  S.detect = data;
+  const manual = $('showAllPorts').checked;
+  const signature = manual + '|' + data.status + '|' +
+    data.candidates.map((p) => p.device).join(',');
+  // 轮询时候选没变就不重建下拉框——操作员正展开着它会被打断。
+  if (signature === S.portSignature && !opts.force) return;
   const previous = $('port').value;
-  $('port').innerHTML = data.ports.map(
-    (p) => '<option value="' + p.device + '">' + p.device + ' — ' + esc(p.description) + '</option>'
-  ).join('');
-  if (previous) $('port').value = previous;
-  log(tf('log_ports', { count: data.ports.length }));
+  S.portSignature = signature;
+
+  const list = manual ? data.ports : data.candidates;
+  $('port').innerHTML = list.map((p) => {
+    const tag = p.is_adapter ? '' : ' ' + tr('port_placeholder_tag');
+    return '<option value="' + p.device + '">' + p.device + ' — ' +
+      esc(p.description) + esc(tag) + '</option>';
+  }).join('');
+
+  const stillThere = list.some((p) => p.device === previous);
+  if (stillThere) {
+    $('port').value = previous;
+  } else if (!manual && data.status === 'one') {
+    $('port').value = data.port;
+  }
+
+  const blocks = [];
+  const kind = data.status === 'one' ? 'ok' : (data.status === 'none' ? 'warn' : 'info');
+  blocks.push('<div class="note ' + kind + '">' + esc(data.message) + '</div>');
+  if (previous && !stillThere && data.status !== 'none') {
+    blocks.push('<div class="note warn">' + esc(tf('port_unplugged', { port: previous })) + '</div>');
+  }
+  (data.warnings || []).forEach((w) => {
+    blocks.push('<div class="note bad">' + esc(w) + '</div>');
+  });
+  if (manual) {
+    blocks.push('<div class="note info">' + esc(tf('port_manual_hint', {
+      total: data.total, count: data.candidates.length })) + '</div>');
+  }
+  $('portNote').innerHTML = blocks.join('');
+
+  if (!opts.silent) {
+    if (data.status === 'one') log(tf('log_port_detected', { port: data.port }), 'ok');
+    else if (data.status === 'none') log(tr('log_port_none'), 'bad');
+    else log(tf('log_port_many', { count: data.candidates.length }));
+  }
   renderStages();
 }
 
 $('langSelect').onchange = async () => {
   applyLanguage($('langSelect').value);
-  // 关节名和档位文案由服务端按语言渲染，换语言要重新取一次。
-  try { await loadConfig(); } catch (e) { log(e.message, 'bad'); }
+  // 关节名、档位文案和识别结果都由服务端按语言渲染，换语言要重新取一次。
+  try { await loadConfig(); await detectPorts({ force: true, silent: true }); }
+  catch (e) { log(e.message, 'bad'); }
 };
-$('refreshPorts').onclick = () => loadPorts().catch((e) => log(e.message, 'bad'));
+$('refreshPorts').onclick = () => detectPorts({ force: true }).catch((e) => log(e.message, 'bad'));
+$('showAllPorts').onchange = () => detectPorts({ force: true }).catch((e) => log(e.message, 'bad'));
 $('profile').onchange = updateSupplyNote;
 $('side').onchange = () => { $('robotId').value = ''; renderStages(); };
 $('robotId').oninput = renderStages;
@@ -2271,7 +2401,14 @@ $('btnExport').onclick = async () => {
 };
 
 applyLanguage($('langSelect').value);
-loadConfig().then(loadPorts).then(() => log(tr('log_ready'))).catch((e) => log(e.message, 'bad'));
+loadConfig()
+  .then(() => detectPorts({ force: true }))
+  .then(() => log(tr('log_ready')))
+  .catch((e) => log(e.message, 'bad'));
+// 适配器插上或拔掉后不必点任何按钮，页面自己跟上。
+S.portTimer = setInterval(() => {
+  detectPorts({ silent: true }).catch(() => { /* 后端暂时不可达，下一轮再试 */ });
+}, 3000);
 setInterval(async () => {
   try {
     const status = await api('/api/calibration/status');
@@ -2314,6 +2451,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/ports":
             self._json({"ok": True, "ports": list_serial_ports()})
+            return
+        if parsed.path == "/api/detect-port":
+            self._json(detect_serial_port())
             return
         if parsed.path == "/api/calibration/status":
             self._json(CALIBRATION.status())

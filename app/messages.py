@@ -122,6 +122,27 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Reconnected to {port}.",
         "de": "Verbindung zu {port} wiederhergestellt.",
     },
+    # ---------- 串口自动识别 ----------
+    "port_detect_none": {
+        "zh": "未检测到 USB 串口适配器。请插好 Waveshare 板的 USB 线，然后点「重新识别」。内核给每个板载 UART 都建了 /dev/ttyS* 节点，那些不是适配器。",
+        "en": "No USB serial adapter detected. Plug in the Waveshare board's USB cable, then press “Detect again”. The kernel creates a /dev/ttyS* node for every on-board UART; those are not adapters.",
+        "de": "Kein USB-Seriell-Adapter erkannt. Das USB-Kabel des Waveshare-Boards einstecken und dann „Erneut erkennen“ drücken. Der Kernel erzeugt für jede Onboard-UART einen /dev/ttyS*-Knoten; das sind keine Adapter.",
+    },
+    "port_detect_one": {
+        "zh": "已自动识别串口：{description}（序列号 {serial}）。",
+        "en": "Serial port detected automatically: {description} (serial number {serial}).",
+        "de": "Serieller Port automatisch erkannt: {description} (Seriennummer {serial}).",
+    },
+    "port_detect_many": {
+        "zh": "检测到 {count} 个 USB 串口适配器，无法确定哪一个是本工位的。请在下拉框里选择。",
+        "en": "{count} USB serial adapters were detected, so the right one cannot be decided automatically. Pick it from the list.",
+        "de": "Es wurden {count} USB-Seriell-Adapter erkannt, der richtige lässt sich nicht automatisch bestimmen. Bitte aus der Liste wählen.",
+    },
+    "port_not_writable": {
+        "zh": "{port} 当前用户没有读写权限，打开会失败。把用户加入 dialout 组后重新登录一次：sudo usermod -aG dialout $USER",
+        "en": "The current user cannot read or write {port}, so opening it will fail. Add the user to the dialout group and log in again: sudo usermod -aG dialout $USER",
+        "de": "Der aktuelle Benutzer kann {port} nicht lesen oder schreiben, das Öffnen wird fehlschlagen. Den Benutzer der Gruppe dialout hinzufügen und erneut anmelden: sudo usermod -aG dialout $USER",
+    },
     # ---------- 电机识别 ----------
     "initial_params_invalid": {
         "zh": "给定初始参数无效：baudrate={baudrate}, id={id}, model={model}",

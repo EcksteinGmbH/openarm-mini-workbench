@@ -268,3 +268,117 @@ class TeleopSupportTest(unittest.TestCase):
             self.assertFalse(main.lerobot_supports_openarm_mini(script))
         finally:
             Path(script).unlink()
+
+
+class FakePortInfo:
+    """pyserial ListPortInfo 里本工作站用到的那几个字段。"""
+
+    def __init__(self, device, description="n/a", vid=None, pid=None, serial_number=None):
+        self.device = device
+        self.name = device.rsplit("/", 1)[-1]
+        self.description = description
+        self.vid = vid
+        self.pid = pid
+        self.serial_number = serial_number
+        self.product = description if vid else None
+        self.hwid = (
+            f"USB VID:PID={vid:04X}:{pid:04X} SER={serial_number}" if vid else "n/a"
+        )
+
+
+GHOSTS = [FakePortInfo(f"/dev/ttyS{i}") for i in range(32)]
+# 实测的 Waveshare 板：WCH CH343，udev 建了 by-id 别名
+ADAPTER = FakePortInfo(
+    "/dev/ttyACM0", "USB Single Serial", vid=0x1A86, pid=0x55D3, serial_number="5B14032307"
+)
+ADAPTER_ALIAS = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B14032307-if00"
+SECOND = FakePortInfo(
+    "/dev/ttyACM1", "USB Single Serial", vid=0x1A86, pid=0x55D3, serial_number="5B14032308"
+)
+SECOND_ALIAS = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B14032308-if00"
+
+
+class PortDetectionTest(unittest.TestCase):
+    """自动识别串口。
+
+    本机有 32 个 /dev/ttyS* 内核占位节点，只有 1 个是真适配器；
+    让操作员在 33 条里挑，是选错串口的主要来源。
+    """
+
+    def setUp(self) -> None:
+        self._comports = main.list_ports.comports
+        self._aliases = main._stable_port_aliases
+        self._access = main.os.access
+        main.os.access = lambda path, mode: True  # type: ignore[assignment]
+
+    def tearDown(self) -> None:
+        main.list_ports.comports = self._comports  # type: ignore[assignment]
+        main._stable_port_aliases = self._aliases  # type: ignore[assignment]
+        main.os.access = self._access  # type: ignore[assignment]
+
+    def _given(self, infos, aliases=None):
+        main.list_ports.comports = lambda: list(infos)  # type: ignore[assignment]
+        main._stable_port_aliases = lambda: dict(aliases or {})  # type: ignore[assignment]
+
+    def test_kernel_placeholders_are_not_adapters(self) -> None:
+        for ghost in GHOSTS[:3]:
+            with self.subTest(device=ghost.device):
+                self.assertFalse(main._is_usb_adapter(ghost, ""))
+
+    def test_usb_identity_makes_an_adapter(self) -> None:
+        self.assertTrue(main._is_usb_adapter(ADAPTER, ""))
+
+    def test_by_id_alias_makes_an_adapter(self) -> None:
+        # 别名只对 USB 串口存在，所以它本身就是充分判据。
+        bare = FakePortInfo("/dev/ttyACM9")
+        self.assertTrue(main._is_usb_adapter(bare, "/dev/serial/by-id/whatever"))
+
+    def test_single_adapter_is_selected_automatically(self) -> None:
+        self._given(GHOSTS + [ADAPTER], {"/dev/ttyACM0": ADAPTER_ALIAS})
+        result = main.detect_serial_port()
+        self.assertEqual(result["status"], "one")
+        # 给出的必须是稳定别名：内核名每次重新枚举都会变。
+        self.assertEqual(result["port"], ADAPTER_ALIAS)
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["total"], 33)
+
+    def test_no_adapter_reports_none_and_picks_nothing(self) -> None:
+        self._given(GHOSTS)
+        result = main.detect_serial_port()
+        self.assertEqual(result["status"], "none")
+        self.assertEqual(result["port"], "")
+        self.assertEqual(result["candidates"], [])
+
+    def test_two_adapters_are_never_guessed(self) -> None:
+        # 一个工位同时插着左右两条臂的适配器是正常状态；猜错会把 ID 写到另一条臂上。
+        self._given(
+            GHOSTS + [ADAPTER, SECOND],
+            {"/dev/ttyACM0": ADAPTER_ALIAS, "/dev/ttyACM1": SECOND_ALIAS},
+        )
+        result = main.detect_serial_port()
+        self.assertEqual(result["status"], "many")
+        self.assertEqual(result["port"], "")
+        self.assertEqual(len(result["candidates"]), 2)
+
+    def test_adapters_sort_before_the_placeholders(self) -> None:
+        self._given(GHOSTS + [ADAPTER], {"/dev/ttyACM0": ADAPTER_ALIAS})
+        ports = main.detect_serial_port()["ports"]
+        self.assertTrue(ports[0]["is_adapter"])
+        self.assertFalse(ports[-1]["is_adapter"])
+
+    def test_unwritable_adapter_is_warned_about(self) -> None:
+        # 权限不足时 openPort() 会抛异常；提前说比等它失败有用。
+        main.os.access = lambda path, mode: False  # type: ignore[assignment]
+        self._given(GHOSTS + [ADAPTER], {"/dev/ttyACM0": ADAPTER_ALIAS})
+        result = main.detect_serial_port()
+        self.assertEqual(result["status"], "one")
+        self.assertEqual(len(result["warnings"]), 1)
+        self.assertIn("dialout", result["warnings"][0])
+
+    def test_message_follows_the_language(self) -> None:
+        self._given(GHOSTS + [ADAPTER], {"/dev/ttyACM0": ADAPTER_ALIAS})
+        messages.set_language("de")
+        try:
+            self.assertIn("automatisch erkannt", main.detect_serial_port()["message"])
+        finally:
+            messages.set_language(messages.DEFAULT_LANGUAGE)
