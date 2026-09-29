@@ -189,12 +189,13 @@ class NoHardcodedOperatorTextTest(unittest.TestCase):
     """
 
     # 启动服务的人看的是终端，不是页面，语言不随请求变。
+    # parse_args() 里的字面量全是 --help 文本，整体跳过，
+    # 比每加一个参数就往白名单里补一条字符串更省事。
     CLI_ALLOWLIST = {
         "OpenArm Mini 测试工作站",
-        "监听地址，默认 127.0.0.1",
-        "监听端口，默认 8788",
         "已停止。",
     }
+    CLI_FUNCTIONS = {"parse_args"}
 
     def test_no_chinese_literal_outside_the_catalog(self) -> None:
         import ast
@@ -204,6 +205,11 @@ class NoHardcodedOperatorTextTest(unittest.TestCase):
 
         skip: set[int] = set()
         for node in ast.walk(tree):
+            # 终端参数说明整函数跳过
+            if isinstance(node, ast.FunctionDef) and node.name in self.CLI_FUNCTIONS:
+                for inner in ast.walk(node):
+                    if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+                        skip.add(id(inner))
             # docstring 是给维护者的，留中文
             if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 body = getattr(node, "body", [])

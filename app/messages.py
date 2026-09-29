@@ -154,6 +154,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Found model {model} at baudrate={baudrate}, id={id}, which is not an STS3215 ({expected}).",
         "de": "Bei baudrate={baudrate}, id={id} wurde Modell {model} gefunden, kein STS3215 ({expected}).",
     },
+    "multiple_motors_on_bus": {
+        "zh": "总线上检测到 {count} 颗电机（ID {ids}）。写 ID 这一步必须只连接一颗——多颗同时在线会一起被改成同一个 ID。请只留下当前这一颗，其余断开后重新扫描。",
+        "en": "{count} motors answered on the bus (IDs {ids}). The ID-writing step requires exactly one connected motor — several online at once all end up with the same ID. Leave only the current motor connected and scan again.",
+        "de": "{count} Motoren haben auf dem Bus geantwortet (IDs {ids}). Für das Schreiben der ID darf nur ein Motor angeschlossen sein — mehrere gleichzeitig erhalten alle dieselbe ID. Nur den aktuellen Motor angeschlossen lassen und erneut scannen.",
+    },
+    "no_motor_found_deep_hint": {
+        "zh": "广播 ping 在 8 档波特率上都没有电机应答，请检查接线、电源和串口。若这颗电机确实不响应广播，可勾选「深度扫描」逐个试 ID（实测约 110 秒）。",
+        "en": "No motor answered the broadcast ping on any of the 8 baud rates. Check the wiring, the power supply and the serial port. If this motor genuinely does not answer a broadcast, tick “deep scan” to probe IDs one by one (measured at about 110 seconds).",
+        "de": "Kein Motor hat auf den Broadcast-Ping in einer der 8 Baudraten geantwortet. Verkabelung, Stromversorgung und seriellen Port prüfen. Falls dieser Motor wirklich nicht auf einen Broadcast antwortet, „Tiefenscan“ aktivieren, um die IDs einzeln zu prüfen (gemessen etwa 110 Sekunden).",
+    },
     "no_motor_found": {
         "zh": "未找到可通信的 STS3215 电机，请检查接线、电源和串口。",
         "en": "No reachable STS3215 motor was found. Check the wiring, the power supply and the serial port.",
@@ -340,6 +350,21 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "未找到 lerobot-calibrate 可执行文件，无法启动官方校准。请确认已安装带 openarm_mini 驱动的 LeRobot 环境。",
         "en": "The lerobot-calibrate executable was not found, so the official calibration cannot start. Make sure a LeRobot environment that includes the openarm_mini driver is installed.",
         "de": "Die ausführbare Datei lerobot-calibrate wurde nicht gefunden, die offizielle Kalibrierung kann nicht starten. Sicherstellen, dass eine LeRobot-Umgebung mit dem openarm_mini-Treiber installiert ist.",
+    },
+    "lerobot_source_project": {
+        "zh": "项目内 {name}/",
+        "en": "project-local {name}/",
+        "de": "projektlokal {name}/",
+    },
+    "lerobot_source_shared": {
+        "zh": "共享目录 {name}/（其他工作站也会扫描这里）",
+        "en": "shared directory {name}/ (other workstations scan it too)",
+        "de": "gemeinsames Verzeichnis {name}/ (andere Arbeitsplätze durchsuchen es ebenfalls)",
+    },
+    "lerobot_override_missing": {
+        "zh": "指定的 lerobot-calibrate 不存在或不可执行：{path}。检查 --lerobot-calibrate 参数或 {env} 环境变量。",
+        "en": "The specified lerobot-calibrate does not exist or is not executable: {path}. Check the --lerobot-calibrate argument or the {env} environment variable.",
+        "de": "Das angegebene lerobot-calibrate existiert nicht oder ist nicht ausführbar: {path}. Das Argument --lerobot-calibrate oder die Umgebungsvariable {env} prüfen.",
     },
     "calibrate_no_driver": {
         "zh": "{executable} 所在的 LeRobot 环境没有 openarm_mini 驱动，启动了也只会被 argparse 以「invalid choice」顶回来。请升级到含该驱动的 LeRobot，或把工作站指向装有它的虚拟环境。",

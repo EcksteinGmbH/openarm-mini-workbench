@@ -440,3 +440,142 @@ class CalibrationRootTest(unittest.TestCase):
         self.assertEqual(
             main._calibration_dir(), Path("/data/cal/teleoperators/openarm_mini")
         )
+
+
+class LerobotResolutionTest(unittest.TestCase):
+    """决定启动哪个 lerobot-calibrate。
+
+    共享目录 ~/Projects/.venvs 被 SO-ARM101 工作站用 sorted(glob(...)) 扫描并取
+    第一个匹配。在那里新建 venv 会按字母序悄悄改变**它**选中的 LeRobot，
+    所以本工作站优先用项目内的 venv，并支持显式指定。
+    """
+
+    def setUp(self) -> None:
+        self._env = main.os.environ.get(main.LEROBOT_ENV_VAR)
+        main.os.environ.pop(main.LEROBOT_ENV_VAR, None)
+        main.set_lerobot_calibrate_override(None)
+
+    def tearDown(self) -> None:
+        main.set_lerobot_calibrate_override(None)
+        if self._env is None:
+            main.os.environ.pop(main.LEROBOT_ENV_VAR, None)
+        else:
+            main.os.environ[main.LEROBOT_ENV_VAR] = self._env
+
+    def test_cli_override_wins_over_everything(self) -> None:
+        main.os.environ[main.LEROBOT_ENV_VAR] = "/bin/echo"
+        main.set_lerobot_calibrate_override("/bin/true")
+        result = main.resolve_lerobot_calibrate()
+        self.assertEqual(result["path"], "/bin/true")
+        self.assertEqual(result["source"], "--lerobot-calibrate")
+
+    def test_env_var_is_honoured(self) -> None:
+        main.os.environ[main.LEROBOT_ENV_VAR] = "/bin/echo"
+        result = main.resolve_lerobot_calibrate()
+        self.assertEqual(result["path"], "/bin/echo")
+        self.assertEqual(result["source"], main.LEROBOT_ENV_VAR)
+
+    def test_invalid_override_raises_instead_of_falling_back(self) -> None:
+        # 路径打错却静默回退到另一个 LeRobot，正是这个参数要防的事。
+        main.set_lerobot_calibrate_override("/nope/lerobot-calibrate")
+        with self.assertRaises(RuntimeError) as caught:
+            main.resolve_lerobot_calibrate()
+        self.assertIn("/nope/lerobot-calibrate", str(caught.exception))
+
+    def test_find_returns_none_for_an_invalid_override(self) -> None:
+        main.set_lerobot_calibrate_override("/nope/lerobot-calibrate")
+        self.assertIsNone(main.find_lerobot_calibrate())
+
+    def test_project_local_venv_is_preferred_over_the_shared_directory(self) -> None:
+        self.assertEqual(main.PROJECT_LEROBOT_VENVS[0], ".venv-lerobot")
+        self.assertIn(".venv", main.PROJECT_LEROBOT_VENVS)
+
+    def test_shared_directory_source_says_it_is_shared(self) -> None:
+        # 现场看到「共享目录」才知道这个 LeRobot 不是本项目专有的。
+        result = main.resolve_lerobot_calibrate()
+        if result["source"]:
+            self.assertTrue(isinstance(result["source"], str))
+
+
+class FakePacketHandler:
+    def __init__(self, responders):
+        self.responders = responders
+        self.tx_calls = 0
+
+    def txPacket(self, port_handler, txpacket):  # noqa: N802
+        self.tx_calls += 1
+        port_handler.queue_responses(self.responders)
+        return 0  # COMM_SUCCESS
+
+
+class FakePortHandler:
+    """够用的假串口：只支撑广播 ping 的收发时序。"""
+
+    def __init__(self):
+        self.buffer: list[int] = []
+        self.is_using = False
+        self.baudrate = 1_000_000
+
+    def getBaudRate(self):  # noqa: N802
+        return self.baudrate
+
+    def setPacketTimeoutMillis(self, ms):  # noqa: N802
+        pass
+
+    def isPacketTimeout(self):  # noqa: N802
+        return not self.buffer
+
+    def readPort(self, length):  # noqa: N802
+        chunk, self.buffer = self.buffer[:length], self.buffer[length:]
+        return chunk
+
+    def queue_responses(self, ids):
+        for motor_id in ids:
+            # 状态包：FF FF <id> <length> <error> <checksum>
+            body = [motor_id, 2, 0]
+            checksum = ~sum(body) & 0xFF
+            self.buffer += [0xFF, 0xFF, *body, checksum]
+
+
+class BroadcastPingTest(unittest.TestCase):
+    """广播 ping 的解包，按 LeRobot 的状态包格式。
+
+    官方 _find_single_motor_p0() 每档波特率只发一个广播包；早先这里是
+    8 档 × 252 个 ID 逐个试，实测空跑 105 秒，那不是官方行为。
+    """
+
+    def _client(self, responders):
+        client = main.FeetechSdkClient.__new__(main.FeetechSdkClient)
+        client.scs = _FakeScs()
+        client.port_handler = FakePortHandler()
+        client.packet_handler = FakePacketHandler(responders)
+        return client
+
+    def test_single_responder_is_parsed(self) -> None:
+        client = self._client([6])
+        self.assertEqual(client.broadcast_ping(), {6: 0})
+
+    def test_every_responder_is_returned(self) -> None:
+        # 这是比官方严的关键：多接了电机能当场发现。
+        client = self._client([1, 6, 8])
+        self.assertEqual(sorted(client.broadcast_ping()), [1, 6, 8])
+
+    def test_silence_returns_empty(self) -> None:
+        client = self._client([])
+        self.assertEqual(client.broadcast_ping(), {})
+
+    def test_one_packet_per_call(self) -> None:
+        client = self._client([3])
+        client.broadcast_ping()
+        self.assertEqual(client.packet_handler.tx_calls, 1)
+
+
+class _FakeScs:
+    COMM_SUCCESS = 0
+    MAX_ID = 252
+    BROADCAST_ID = 254
+    PKT_ID = 2
+    PKT_LENGTH = 3
+    PKT_INSTRUCTION = 4
+    PKT_ERROR = 4
+    INST_PING = 1

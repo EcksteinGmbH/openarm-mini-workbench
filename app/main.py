@@ -242,10 +242,86 @@ class FeetechSdkClient:
             return None
         return int(model)
 
+    def broadcast_ping(self) -> dict[int, int]:
+        """一个广播包问出总线上所有应答的 ID，返回 {id: 状态字节}。
+
+        逐行移植 LeRobot `FeetechMotorsBus._broadcast_ping()`。已发布的
+        `scservo_sdk` 在协议 0 下没有广播 ping，所以官方自己拼的包，这里照做——
+        用的原语（BROADCAST_ID / INST_PING / txPacket / setPacketTimeoutMillis /
+        isPacketTimeout / readPort）在 feetech-servo-sdk 1.0.0 里都有。
+        """
+
+        scs = self.scs
+        data_list: dict[int, int] = {}
+        status_length = 6
+        rx_length = 0
+        wait_length = status_length * scs.MAX_ID
+
+        txpacket = [0] * 6
+        tx_time_per_byte = (1000.0 / self.port_handler.getBaudRate()) * 10.0
+        txpacket[scs.PKT_ID] = scs.BROADCAST_ID
+        txpacket[scs.PKT_LENGTH] = 2
+        txpacket[scs.PKT_INSTRUCTION] = scs.INST_PING
+
+        if self.packet_handler.txPacket(self.port_handler, txpacket) != scs.COMM_SUCCESS:
+            self.port_handler.is_using = False
+            return data_list
+
+        self.port_handler.setPacketTimeoutMillis(
+            (wait_length * tx_time_per_byte) + (3.0 * scs.MAX_ID) + 16.0
+        )
+        rxpacket: list[int] = []
+        while not self.port_handler.isPacketTimeout() and rx_length < wait_length:
+            rxpacket += self.port_handler.readPort(wait_length - rx_length)
+            rx_length = len(rxpacket)
+        self.port_handler.is_using = False
+
+        if rx_length == 0:
+            return data_list
+
+        while True:
+            if rx_length < status_length:
+                return data_list
+            # 找包头
+            idx = 0
+            for idx in range(0, rx_length - 1):
+                if rxpacket[idx] == 0xFF and rxpacket[idx + 1] == 0xFF:
+                    break
+            if idx == 0:
+                checksum = 0
+                for pos in range(2, status_length - 1):  # 跳过包头与校验位
+                    checksum += rxpacket[pos]
+                checksum = ~checksum & 0xFF
+                if rxpacket[status_length - 1] == checksum:
+                    data_list[rxpacket[scs.PKT_ID]] = rxpacket[scs.PKT_ERROR]
+                    del rxpacket[0:status_length]
+                    rx_length -= status_length
+                    if rx_length == 0:
+                        return data_list
+                else:
+                    del rxpacket[0:2]
+                    rx_length -= 2
+            else:
+                del rxpacket[0:idx]
+                rx_length -= idx
+
     def find_single_sts3215(
-        self, initial_baudrate: int | None = None, initial_id: int | None = None
+        self,
+        initial_baudrate: int | None = None,
+        initial_id: int | None = None,
+        deep_scan: bool = False,
     ) -> tuple[int, int]:
-        scan_bauds = [initial_baudrate] if initial_baudrate is not None else SCAN_BAUDRATES
+        """认出单独连接的那一颗电机，与官方同法。
+
+        官方 `_find_single_motor_p0()` 每档波特率发**一个广播 ping**，最坏 8 个包。
+        早先这里是逐个试 ID（8 × 254 = 2032 次单读，实测空跑 105 秒）——那是从
+        SO-ARM101 工作站带过来的写法，并非官方行为。
+
+        比官方多一道闸：广播会返回总线上**所有**应答，所以多接了电机能当场发现。
+        官方只取第一个应答，看不出来；而写 ID 时多接一颗，两颗会被改成同一个 ID。
+
+        `deep_scan` 保留逐个试 ID 的老路，默认关闭，只在某颗电机确实不响应广播时用。
+        """
 
         if initial_id is not None and initial_baudrate is not None:
             self.set_baudrate(initial_baudrate)
@@ -261,10 +337,41 @@ class FeetechSdkClient:
                 )
             )
 
+        scan_bauds = [initial_baudrate] if initial_baudrate is not None else SCAN_BAUDRATES
+
         for baud in scan_bauds:
             self.set_baudrate(baud)
-            id_candidates = [1] + [i for i in range(0, 254) if i != 1]
-            for motor_id in id_candidates:
+            answered = self.broadcast_ping()
+            if not answered:
+                continue
+            if len(answered) > 1:
+                raise RuntimeError(
+                    _m(
+                        "multiple_motors_on_bus",
+                        count=len(answered),
+                        ids=", ".join(str(i) for i in sorted(answered)),
+                    )
+                )
+            motor_id = next(iter(answered))
+            model = self.read_model_number(motor_id)
+            if model != STS3215_MODEL_NUMBER:
+                raise RuntimeError(
+                    _m(
+                        "wrong_model_found",
+                        baudrate=baud,
+                        id=motor_id,
+                        model=model,
+                        expected=STS3215_MODEL_NUMBER,
+                    )
+                )
+            return baud, motor_id
+
+        if not deep_scan:
+            raise RuntimeError(_m("no_motor_found_deep_hint"))
+
+        for baud in scan_bauds:
+            self.set_baudrate(baud)
+            for motor_id in [1] + [i for i in range(0, self.scs.MAX_ID + 1) if i != 1]:
                 model = self.read_model_number(motor_id)
                 if model is None:
                     continue
@@ -412,13 +519,16 @@ def scan_current_motor(
     initial_baudrate: int | None = None,
     initial_id: int | None = None,
     hardware_profile: str = "",
+    deep_scan: bool = False,
 ) -> dict[str, Any]:
     """认出当前单独连接的那一颗电机。"""
 
     client = FeetechSdkClient(port)
     try:
         client.open()
-        found_baud, found_id = client.find_single_sts3215(initial_baudrate, initial_id)
+        found_baud, found_id = client.find_single_sts3215(
+            initial_baudrate, initial_id, deep_scan=deep_scan
+        )
         voltage_v = client.read_present_voltage_raw(found_id) / 10.0
         voltage_check = check_supply_voltage(hardware_profile, voltage_v)
         motor_name = _id_to_motor_name(found_id)
@@ -428,6 +538,7 @@ def scan_current_motor(
             "voltage_v": round(voltage_v, 2),
             "voltage_check": voltage_check,
             "detected": {"baudrate": found_baud, "id": found_id},
+            "deep_scan": deep_scan,
             "already_initialized": motor_name is not None,
             "motor_name": motor_name,
             "motor_title": motor_title(motor_name) if motor_name else None,
@@ -447,6 +558,7 @@ def initialize_motor_id(
     initial_baudrate: int | None = None,
     initial_id: int | None = None,
     hardware_profile: str = "",
+    deep_scan: bool = False,
 ) -> dict[str, Any]:
     """给单独连接的一颗电机写入目标 ID 和 1000000 波特率。
 
@@ -461,7 +573,9 @@ def initialize_motor_id(
     client = FeetechSdkClient(port)
     try:
         client.open()
-        found_baud, found_id = client.find_single_sts3215(initial_baudrate, initial_id)
+        found_baud, found_id = client.find_single_sts3215(
+            initial_baudrate, initial_id, deep_scan=deep_scan
+        )
         client.set_baudrate(found_baud)
         # 任何 EEPROM 写入前先验电压：档位选错会烧电机。
         voltage_check = check_supply_voltage(
@@ -1163,23 +1277,75 @@ def verify_calibration_and_config(port: str, robot_id: str) -> dict[str, Any]:
     }
 
 
-def find_lerobot_calibrate() -> str | None:
-    """找到官方 lerobot-calibrate 可执行文件。
+LEROBOT_ENV_VAR = "OPENARM_MINI_LEROBOT_CALIBRATE"
+# 本工作站专用的 LeRobot 环境放在**项目目录内**，不要放到 ~/Projects/.venvs/。
+# 那个共享目录被 SO-ARM101 工作站用 sorted(glob(...)) 扫描并取第一个匹配，
+# 在那里新建一个 venv 会按字母序悄悄改变它选中的 LeRobot。放项目内它看不见。
+PROJECT_LEROBOT_VENVS = (".venv-lerobot", ".venv")
+_lerobot_override: str | None = None
 
-    LeRobot 刻意不作为本工作站的依赖，它通常装在另一个虚拟环境里，
-    所以这里报告解析到的真实路径，而不是假设它在 PATH 上。
+
+def set_lerobot_calibrate_override(path: str | None) -> None:
+    """记下 --lerobot-calibrate 指定的路径（启动时调用一次）。"""
+
+    global _lerobot_override
+    _lerobot_override = path or None
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_lerobot_calibrate() -> dict[str, Any]:
+    """解析要启动哪个 lerobot-calibrate，并说明是从哪来的。
+
+    显式指定优先，其次项目内的 venv，然后才是 PATH 和共享 venv 目录。
+    显式指定的路径不存在时**直接报错**，不静默回退——路径打错了却回退到
+    另一个 LeRobot，正是这个参数要防的事。
     """
+
+    explicit = _lerobot_override or os.getenv(LEROBOT_ENV_VAR) or ""
+    if explicit:
+        source = "--lerobot-calibrate" if _lerobot_override else LEROBOT_ENV_VAR
+        candidate = Path(explicit).expanduser()
+        if not (candidate.is_file() and os.access(candidate, os.X_OK)):
+            raise RuntimeError(
+                _m("lerobot_override_missing", path=candidate, env=LEROBOT_ENV_VAR)
+            )
+        return {"path": str(candidate), "source": source}
+
+    for name in PROJECT_LEROBOT_VENVS:
+        candidate = _project_root() / name / "bin" / "lerobot-calibrate"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return {
+                    "path": str(candidate),
+                    "source": _m("lerobot_source_project", name=name),
+                }
 
     on_path = shutil.which("lerobot-calibrate")
     if on_path:
-        return on_path
+        return {"path": on_path, "source": "PATH"}
+
     for root in (Path.home() / "Projects/.venvs", Path.home() / ".venvs"):
         if not root.is_dir():
             continue
         for candidate in sorted(root.glob("*/bin/lerobot-calibrate")):
             if os.access(candidate, os.X_OK):
-                return str(candidate)
-    return None
+                return {
+                    "path": str(candidate),
+                    "source": _m("lerobot_source_shared", name=root.name),
+                }
+
+    return {"path": "", "source": ""}
+
+
+def find_lerobot_calibrate() -> str | None:
+    """只要路径。解析失败或显式路径无效时返回 None，由调用方给出文案。"""
+
+    try:
+        return resolve_lerobot_calibrate()["path"] or None
+    except RuntimeError:
+        return None
 
 
 # openarm_mini 是较新加入 LeRobot 的遥操作臂。本机上很可能同时装着别的、
@@ -1377,7 +1543,9 @@ class CalibrationSession:
 
     def start(self, port: str, robot_id: str) -> dict[str, Any]:
         validate_serial(robot_id)
-        executable = find_lerobot_calibrate()
+        # 用 resolve 而不是 find：显式路径写错时要报「指定的路径无效」，
+        # 而不是笼统的「找不到 lerobot-calibrate」。
+        executable = resolve_lerobot_calibrate()["path"] or None
         if executable is None:
             raise RuntimeError(_m("calibrate_not_found"))
         if lerobot_supports_openarm_mini(executable) is False:
@@ -1580,6 +1748,10 @@ INDEX_HTML = """<!doctype html>
   code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
   label.inline { display: flex; gap: 6px; align-items: center; font-size: 12.5px;
     color: var(--muted); white-space: nowrap; padding-bottom: 8px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px;
+    margin-left: 6px; vertical-align: 1px; font-weight: 600; }
+  .tag.official { background: #dde9fb; color: #1a4a91; }
+  .tag.local { background: #ece6f7; color: #5b3a94; }
 </style>
 </head>
 <body>
@@ -1657,25 +1829,30 @@ INDEX_HTML = """<!doctype html>
       <div class="step" id="stepScan">
         <div class="num">1</div>
         <div class="body">
-          <b data-i18n="step_scan_title"></b>
+          <b data-i18n="step_scan_title"></b><span class="tag official" data-i18n="tag_official"></span>
           <p data-i18n="step_scan_desc"></p>
-          <p data-i18n="step_scan_slow_note"></p>
+          <p data-i18n="step_scan_broadcast_note"></p>
+          <label class="inline" style="padding:4px 0 0">
+            <input type="checkbox" id="deepScan" />
+            <span data-i18n="deep_scan_label"></span>
+          </label>
+          <p data-i18n="deep_scan_hint"></p>
         </div>
         <button id="btnScan" data-i18n="btn_scan"></button>
       </div>
       <div class="step" id="stepWrite">
         <div class="num">2</div>
-        <div class="body"><b data-i18n="step_write_title"></b><p id="writeTarget"></p></div>
+        <div class="body"><b data-i18n="step_write_title"></b><span class="tag official" data-i18n="tag_official"></span><p id="writeTarget"></p></div>
         <button id="btnWrite" data-i18n="btn_write" disabled></button>
       </div>
       <div class="step" id="stepRescan">
         <div class="num">3</div>
-        <div class="body"><b data-i18n="step_rescan_title"></b><p data-i18n="step_rescan_desc"></p></div>
+        <div class="body"><b data-i18n="step_rescan_title"></b><span class="tag local" data-i18n="tag_local"></span><p data-i18n="step_rescan_desc"></p></div>
         <button id="btnRescan" data-i18n="btn_rescan" disabled></button>
       </div>
       <div class="step" id="stepFeedback">
         <div class="num">4</div>
-        <div class="body"><b data-i18n="step_feedback_title"></b><p data-i18n="step_feedback_desc"></p></div>
+        <div class="body"><b data-i18n="step_feedback_title"></b><span class="tag local" data-i18n="tag_local"></span><p data-i18n="step_feedback_desc"></p></div>
         <button id="btnFeedback" disabled></button>
       </div>
     </div>
@@ -1683,7 +1860,7 @@ INDEX_HTML = """<!doctype html>
   </section>
 
   <section>
-    <h2 data-i18n="card_scan_title"></h2>
+    <h2 data-i18n="card_scan_title"></h2><span class="tag local" data-i18n="tag_local"></span>
     <p class="hint" data-i18n="card_scan_hint"></p>
     <div class="row"><button id="btnScanAll" data-i18n="btn_scan_all"></button></div>
     <div id="scanAllResult"></div>
@@ -1698,6 +1875,12 @@ INDEX_HTML = """<!doctype html>
       <button class="ghost" id="btnCalAbort" data-i18n="btn_cal_abort" disabled></button>
       <button class="ghost" id="btnVerify" data-i18n="btn_verify"></button>
     </div>
+    <p class="hint">
+      <span data-i18n="btn_precheck"></span><span class="tag local" data-i18n="tag_local"></span>
+      <span data-i18n="btn_cal_start"></span><span class="tag official" data-i18n="tag_official"></span>
+      <span data-i18n="btn_verify"></span><span class="tag local" data-i18n="tag_local"></span>
+    </p>
+    <div id="calSource" class="hint"></div>
     <div id="precheckResult"></div>
     <div id="calPrompt"></div>
     <pre id="calOutput" hidden></pre>
@@ -1705,7 +1888,7 @@ INDEX_HTML = """<!doctype html>
   </section>
 
   <section>
-    <h2 data-i18n="card_export_title"></h2>
+    <h2 data-i18n="card_export_title"></h2><span class="tag local" data-i18n="tag_local"></span>
     <p class="hint" data-i18n-html="card_export_hint"></p>
     <div class="row"><button id="btnExport" data-i18n="btn_export"></button></div>
     <div id="exportResult"></div>
@@ -1740,7 +1923,12 @@ const I18N = {
     step_scan_title: "扫描当前电机", step_scan_desc: "确认只有一颗在线，并读出它现在的 ID 和波特率。",
     btn_scan: "扫描",
     btn_busy: "进行中… {sec}s",
-    step_scan_slow_note: "没有电机应答时，工作站会把 8 档波特率 × 254 个 ID 全试完才报错——本机实测约 105 秒。这段时间串口被占用，其他操作会报「串口正忙」。",
+    tag_official: "官方流程",
+    tag_local: "本地质检",
+    step_scan_broadcast_note: "与官方 _find_single_motor_p0() 同法：每档波特率发一个广播 ping，最坏 8 个包。广播会返回总线上所有应答，所以多接了电机能当场发现——官方只取第一个应答，发现不了。",
+    deep_scan_label: "深度扫描",
+    deep_scan_hint: "深度扫描 = 逐个试 ID（8 档 × 252 个，实测约 110 秒）。只在某颗电机确实不响应广播时勾选；这不是官方行为。",
+    cal_source: "将启动：{exe}（来源：{source}）",
     step_write_title: "写入本步骤 ID 与 1000000 波特率",
     write_target: "目标：{title} → ID {id}，波特率 {baudrate}。",
     btn_write: "写入",
@@ -1829,7 +2017,12 @@ const I18N = {
     step_scan_desc: "Confirm only one motor is online and read its current ID and baud rate.",
     btn_scan: "Scan",
     btn_busy: "Working… {sec}s",
-    step_scan_slow_note: "When no motor answers, the workstation works through all 8 baud rates × 254 IDs before reporting a failure — measured at about 105 seconds on this bench. The serial port is held for that whole time, so other operations will report “port busy”.",
+    tag_official: "official flow",
+    tag_local: "local QC",
+    step_scan_broadcast_note: "Same method as the official _find_single_motor_p0(): one broadcast ping per baud rate, 8 packets worst case. A broadcast returns every responder, so an extra connected motor shows up immediately — the official code takes the first answer and cannot see it.",
+    deep_scan_label: "Deep scan",
+    deep_scan_hint: "Deep scan probes IDs one by one (8 baud rates × 252 IDs, measured at about 110 seconds). Tick it only if a motor genuinely does not answer a broadcast; it is not official behaviour.",
+    cal_source: "Will launch: {exe} (from {source})",
     step_write_title: "Write this step's ID and 1000000 baud",
     write_target: "Target: {title} → ID {id} at {baudrate} baud.",
     btn_write: "Write",
@@ -1918,7 +2111,12 @@ const I18N = {
     step_scan_desc: "Bestätigen, dass nur ein Motor online ist, und dessen aktuelle ID und Baudrate lesen.",
     btn_scan: "Scannen",
     btn_busy: "Läuft… {sec}s",
-    step_scan_slow_note: "Wenn kein Motor antwortet, arbeitet der Prüfplatz alle 8 Baudraten × 254 IDs durch, bevor er einen Fehler meldet — an diesem Prüfplatz gemessen etwa 105 Sekunden. Der serielle Port bleibt die ganze Zeit belegt, andere Vorgänge melden daher „Port belegt“.",
+    tag_official: "offizieller Ablauf",
+    tag_local: "lokale Prüfung",
+    step_scan_broadcast_note: "Dieselbe Methode wie das offizielle _find_single_motor_p0(): ein Broadcast-Ping pro Baudrate, im schlechtesten Fall 8 Pakete. Ein Broadcast liefert alle Antwortenden, ein zusätzlich angeschlossener Motor fällt daher sofort auf — der offizielle Code nimmt die erste Antwort und kann das nicht erkennen.",
+    deep_scan_label: "Tiefenscan",
+    deep_scan_hint: "Der Tiefenscan prüft die IDs einzeln (8 Baudraten × 252 IDs, gemessen etwa 110 Sekunden). Nur aktivieren, wenn ein Motor wirklich nicht auf einen Broadcast antwortet; das ist kein offizielles Verhalten.",
+    cal_source: "Wird gestartet: {exe} (Quelle: {source})",
     step_write_title: "ID dieses Schritts und 1000000 Baud schreiben",
     write_target: "Ziel: {title} → ID {id} bei {baudrate} Baud.",
     btn_write: "Schreiben",
@@ -2049,8 +2247,8 @@ function applyLanguage(lang) {
   renderStages();
 }
 
-// 请求期间把按钮置灰并显示已耗时。没有这层，空跑一次扫描会让页面看起来卡死
-// 一分多钟（实测 105 秒），而且连点会直接撞上「串口正忙」。
+// 请求期间把按钮置灰并显示已耗时。默认的广播 ping 约 8 秒，勾了深度扫描约 110 秒；
+// 没有这层，页面看起来就是卡死，而且连点会直接撞上「串口正忙」。
 // 不改任何硬件路径，纯页面行为。
 async function withBusy(id, run) {
   const button = $(id);
@@ -2140,6 +2338,13 @@ async function loadConfig() {
 function renderCalSupport() {
   const cal = S.calSupport;
   if (!cal) return;
+  $('calSource').innerHTML = cal.available
+    ? esc(tf('cal_source', { exe: cal.executable, source: cal.source }))
+    : '';
+  if (cal.resolve_error) {
+    note('calPrompt', 'bad', esc(cal.resolve_error));
+    return;
+  }
   if (!cal.available) {
     note('calPrompt', 'warn', tr('cal_missing_exec'));
   } else if (cal.openarm_mini_supported === false) {
@@ -2236,7 +2441,8 @@ $('reconnectPort').onclick = () => withBusy('reconnectPort', async () => {
 $('btnScan').onclick = () => withBusy('btnScan', async () => {
   try {
     requireBasics();
-    const data = await api('/api/scan-current', { port: port(), hardware_profile: profile(), robot_id: robotId() });
+    const data = await api('/api/scan-current', { port: port(), hardware_profile: profile(),
+      robot_id: robotId(), deep_scan: $('deepScan').checked });
     S.lastScan = data;
     S.step.scanned = true;
     const expected = S.motors[currentMotor()];
@@ -2515,7 +2721,13 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json(CALIBRATION.status())
             return
         if parsed.path == "/api/config":
-            executable = find_lerobot_calibrate()
+            resolution: dict[str, Any] = {}
+            resolve_error = ""
+            try:
+                resolution = resolve_lerobot_calibrate()
+            except RuntimeError as exc:
+                resolve_error = str(exc)
+            executable = resolution.get("path") or None
             self._json(
                 {
                     "ok": True,
@@ -2552,6 +2764,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "calibration": {
                         "executable": executable or "lerobot-calibrate",
                         "available": executable is not None,
+                        "source": resolution.get("source", ""),
+                        "resolve_error": resolve_error,
+                        "env_var": LEROBOT_ENV_VAR,
                         "openarm_mini_supported": (
                             lerobot_supports_openarm_mini(executable)
                             if executable is not None
@@ -2595,6 +2810,7 @@ class AppHandler(BaseHTTPRequestHandler):
         initial_id = int(id_raw) if id_raw not in (None, "") else None
         hardware_profile = str(payload.get("hardware_profile", "")).strip()
         robot_id = str(payload.get("robot_id", "")).strip()
+        deep_scan = bool(payload.get("deep_scan", False))
 
         if path == "/api/calibration/confirm":
             return CALIBRATION.confirm(str(payload.get("answer", "")).strip())
@@ -2608,9 +2824,13 @@ class AppHandler(BaseHTTPRequestHandler):
             raise ValueError(_m("need_port"))
 
         if path == "/api/scan-current":
-            return scan_current_motor(port, initial_baudrate, initial_id, hardware_profile)
+            return scan_current_motor(
+                port, initial_baudrate, initial_id, hardware_profile, deep_scan
+            )
         if path == "/api/init-id":
-            return initialize_motor_id(port, motor, initial_baudrate, initial_id, hardware_profile)
+            return initialize_motor_id(
+                port, motor, initial_baudrate, initial_id, hardware_profile, deep_scan
+            )
         if path == "/api/feedback-test":
             duration = float(payload.get("duration_sec", FEEDBACK_DEFAULT_SECONDS))
             return feedback_test(port, motor, duration)
@@ -2674,11 +2894,21 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OpenArm Mini 测试工作站")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址，默认 127.0.0.1")
     parser.add_argument("--port", type=int, default=8788, help="监听端口，默认 8788")
+    parser.add_argument(
+        "--lerobot-calibrate",
+        default="",
+        help=(
+            "官方 lerobot-calibrate 可执行文件路径。"
+            f"也可用环境变量 {LEROBOT_ENV_VAR}。"
+            "不指定时按「项目内 .venv-lerobot / .venv → PATH → 共享 venv 目录」查找。"
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    set_lerobot_calibrate_override(args.lerobot_calibrate)
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     print(f"OpenArm Mini 测试工作站: http://{args.host}:{args.port}")
     try:

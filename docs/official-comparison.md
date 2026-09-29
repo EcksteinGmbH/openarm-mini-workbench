@@ -59,7 +59,7 @@ CAN 版 OpenARM）。所以 Mini 唯一的官方流程文档就是硬件仓库�
 
 ## 缺失或待改
 
-### A1 · 单电机识别方式偏离官方（待改，需真机验收）
+### A1 · 单电机识别方式偏离官方（已改，2026-09-29；电机在位行为仍需真机验收）
 
 **官方**（`feetech._find_single_motor_p0`，STS3215 走协议 0）：每档波特率发**一个广播
 ping**，返回所有应答的 ID，再读它们的型号号。最坏 8 个广播包。
@@ -73,9 +73,25 @@ ping**，返回所有应答的 ID，再读它们的型号号。最坏 8 个广�
 一颗电机」这个安全前提**第一次变得可验证**。现在无论官方还是本工作站，多接了几颗都只会
 取到第一个应答，看不出来。
 
-所需的 SDK 原语（`BROADCAST_ID`、`INST_PING`、`PKT_*`、`txPacket`、
-`setPacketTimeoutMillis`、`isPacketTimeout`、`readPort`）在 `feetech-servo-sdk` 1.0.0
-里都有，已验证可移植。这改的是已验证的硬件路径，按验收门要在真机上复验后才能进产线。
+**已改**：`FeetechSdkClient.broadcast_ping()` 逐行移植 LeRobot 的 `_broadcast_ping()`
+（已发布的 `scservo_sdk` 在协议 0 下没有广播 ping，官方自己拼包，这里照做；所需原语
+`BROADCAST_ID`/`INST_PING`/`PKT_*`/`txPacket`/`setPacketTimeoutMillis`/`isPacketTimeout`/
+`readPort` 在 `feetech-servo-sdk` 1.0.0 里都有）。`find_single_sts3215()` 改为按官方方式
+每档波特率发一个广播包。逐个试 ID 的老路保留为 `deep_scan`，**默认关闭**。
+
+本机实测（适配器在位、电机未上电）：
+
+| 路径 | 耗时 |
+|---|---|
+| 广播 ping（默认，官方同法） | **8.0 秒** |
+| 深度扫描（显式勾选，非官方） | 112.9 秒 |
+
+比官方多的那道闸：广播返回**所有**应答，`len(answered) > 1` 时直接报错并列出 ID。
+官方只取第一个应答，多接了电机发现不了——而写 ID 时多接一颗，两颗会被改成同一个 ID。
+这是在**执行**官方那句「Connect the controller board to the '<motor>' motor only」，
+不是偏离它。
+
+电机在位时的行为（能否一次问到、多接时是否如期报错）仍需真机验收。
 
 ### A2 · 校准根目录被写死（已改正，2026-09-29）
 
@@ -84,6 +100,34 @@ ping**，返回所有应答的 ID，再读它们的型号号。最坏 8 个广�
 `$XDG_CACHE_HOME/huggingface/lerobot/calibration`。装机时把 `HF_HOME` 指到大盘是常见做法，
 写死会让工作站在错误目录找文件：给一台**已校准**的臂报「未找到校准文件」，
 或者拿一份过期旧文件核对并报出 8/8 合格。
+
+### A3 · 启动哪个 LeRobot 曾由字母序决定（已改，2026-09-29）
+
+本工作站与 SO-ARM101 工作站原先用同一段查找逻辑：
+`sorted(glob("~/Projects/.venvs/*/bin/lerobot-calibrate"))` **取第一个**。
+在那个共享目录里新建一个 venv，会按字母序悄悄改变**两个**工作站选中的 LeRobot：
+
+| 新 venv 命名 | 两个工作站都会选中 | SO-101 |
+|---|---|---|
+| `openarm-mini-lerobot` | `openarm-mini-lerobot` | 被抢走 |
+| `lerobot-latest` | `lerobot-latest` | 被抢走 |
+| `zz-openarm-mini` | `so-arm101-lerobot-0.4.4` | 不受影响 |
+
+靠字母顺序来保证一个安全属性是不能接受的。现在的解析优先级：
+
+1. `--lerobot-calibrate` 参数
+2. `OPENARM_MINI_LEROBOT_CALIBRATE` 环境变量
+3. **项目内** `.venv-lerobot/` 或 `.venv/`
+4. `PATH`
+5. 共享 `~/Projects/.venvs` / `~/.venvs`（保留兼容，页面会标明「共享目录」）
+
+显式指定的路径无效时**直接报错**，不静默回退——打错路径却回退到另一个 LeRobot，
+正是这个参数要防的事。页面上会显示将要启动哪个可执行文件、来源是哪一级。
+
+**给本工作站装 LeRobot 要放进项目目录**（`.venv-lerobot/`），不要放到
+`~/Projects/.venvs/`：那个共享目录被 SO-ARM101 工作站扫描，项目内的它看不见。
+
+只改了本仓库。SO-ARM101 工作站有同样的隐患，但那是另一个仓库、有自己的验收门，未改动。
 
 ### B1 · 双臂 `bi_openarm_mini` 未覆盖
 
