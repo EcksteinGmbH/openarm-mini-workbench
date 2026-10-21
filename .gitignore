@@ -3,3 +3,20 @@ __pycache__/
 test_reports/.sessions/
 .venv/
 .venv-lerobot*/
+
+# --- agent wiki wiring (init-agent-wiki) ---
+# .omc/ holds runtime state that stays ignored, but .omc/wiki must stay a
+# TRACKED symlink. A whole-directory ignore (".omc/") would make the negation
+# inert — git cannot re-include a path whose parent directory is excluded —
+# so the rule must be "/.omc/*". Nested .omc dirs need their own rule.
+/.omc/*
+!/.omc/wiki
+*/**/.omc/
+# runtime/ is unpromoted working state; session-log churn stays out of git.
+# (Multi-checkout teams that need runtime pages via git: rerun with --track-runtime.)
+agent_wiki/runtime/*
+!agent_wiki/runtime/README.md
+# Codex pre-compact checkpoints: rolling session logs written by the Codex
+# package PreCompact hook. Session logs are churn, not knowledge — the same
+# doctrine that keeps them out of agent_wiki/.
+.codex/checkpoints/
