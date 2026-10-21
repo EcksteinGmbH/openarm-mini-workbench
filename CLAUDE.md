@@ -4,20 +4,20 @@
 
 | 领域 | 路径模式 | 约束文档 |
 |------|---------|---------|
-| workbench | `app/**`, `requirements.txt`, `tests/**` | `README.md` |
+| workbench | `app/**`, `scripts/openarm_mini_readout.py`, `requirements.txt`, `tests/**`, `VERSION` | `README.md`, `docs/WORKSTATION_CHANGELOG.md` |
 | official-reference | `docs/**` | `docs/official-comparison.md`(规则以官方硬件仓库 README/BOM 与 lerobot 源码为准) |
 | knowledge | `agent_wiki/**`, `feature_wiki/**`, `scripts/wiki_reindex.py` | `agent_wiki/AGENTS.md` |
 
 ### 验证命令
 
 - 自检: `.venv/bin/python -m compileall -q app scripts/wiki_reindex.py && python3 scripts/wiki_reindex.py agent_wiki --check`
-- 测试: `.venv/bin/python -m unittest discover -s tests`(95 项;系统 `python3` 下缺 `scservo_sdk` 的 6 项自动跳过)
+- 测试: `.venv/bin/python -m unittest discover -s tests`(136 项;须用 `.venv`,系统 `python3` 没有 pyserial)
 - 健康检查: `.venv/bin/python app/main.py --help`
 - LSP smoke: 无
 
 ### 验收门
 
-- 范围: `app/main.py` 的串口通信、电机寄存器读写、ID/波特率写入流程、校准子进程的阶段识别与作答;`requirements.txt` 与 LeRobot 版本变更
+- 范围: `app/main.py` 的串口通信、电机寄存器读写、ID/波特率写入流程、校准子进程的阶段识别与作答;`scripts/openarm_mini_readout.py`;`app/criteria.py` 判据阈值;`requirements.txt` 与 LeRobot 版本变更
 - 验收环境: OpenArm Mini 台架,8× STS3215-C046 + Waveshare 驱动板 + 独立可调电源;写 ID 时一次只接一颗电机,八电机联调时再接全部;浏览器人工检查中/英/德三语流程
 
 ### 发布流程
@@ -28,10 +28,12 @@
 
 ### 架构边界
 
-- 运行时代码集中在 `app/main.py`(Feetech 适配、领域操作、HTTP API、内嵌页面);面向操作员的文案只放 `app/messages.py`,三语同步
+- 运行时代码:`app/main.py`(Feetech 适配、各阶段测试、HTTP API、内嵌页面)、`app/criteria.py`(判据表与纯判定函数,不碰串口与文案)、`app/gate.py`(放行门与归档,只读会话日志);面向操作员的文案只放 `app/messages.py`,三语同步
+- 判定一律在服务端完成并写入会话日志;页面阶段条按 `/api/release-gate` 画,不在浏览器里算通过与否
+- 判据阈值只改 `app/criteria.py`,同时升 `CRITERIA_VERSION` 并记 `docs/WORKSTATION_CHANGELOG.md`;影响流程/报告/硬件的改动按变更记录的分级升 `VERSION`
 - 全程只读、不上扭矩;唯一写入是第 2 步的 ID/波特率和官方 `lerobot-calibrate` 自己写的校准参数
-- LeRobot 不是工作站依赖:只作为子进程启动,不得从 `app/` 导入
-- 持久化/迁移策略: 无数据库;每条臂一个 `test_reports/.sessions/<编号>.jsonl` 追加日志(不提交),校准文件在 LeRobot 校准根下,设备配置在电机 EEPROM;无迁移机制
+- LeRobot 不是工作站依赖:只作为子进程启动(`lerobot-calibrate`、`scripts/openarm_mini_readout.py`),不得从 `app/` 导入
+- 持久化/迁移策略: 无数据库;每条臂一个 `test_reports/.sessions/<编号>.jsonl` 追加日志(不提交);归档 `test_reports/Leader/<编号>/` 与 `test_reports/编号与归档索引.md`(提交);校准文件在 LeRobot 校准根下,设备配置在电机 EEPROM;旧格式日志记录由放行门忽略,无迁移机制
 
 ### 命名约定
 

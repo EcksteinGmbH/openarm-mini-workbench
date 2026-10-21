@@ -1,6 +1,6 @@
 # 任务: factory-test-flow — 按官方流程与出厂测试重整 OpenArm Mini 测试流程
 
-> 状态: 🔵 规划中
+> 状态: 🟡 实现完成，待真机验收
 > 模块: testbench
 > 开始: 2026-10-21
 
@@ -10,9 +10,10 @@
 
 ## 当前工作
 
-- **阶段**: 规划（方案提案已出，等 owner 决策）
-- **下一步**: owner 确认 [docs/test-plan.md](docs/test-plan.md) §6 的 5 个决策点 → `/task-plan-spec` 写规格
-- **阻塞**: §6 决策；M0 需要台架与整臂
+- **阶段**: 实现完成（工作站 0.2.0，2026-10-21），待真机验收
+- **下一步**: 2026-10-22 真机跑 OAML2026092901（已装配，S1 沿用 09-29 记录）：S2 → S3 → S4 → S5 → S6 → S9 → 归档；记录问题与实测值用于定标
+- **阻塞**: 无
+- **§6 决策的临时默认**（owner 未逐条确认，按此实现，可改）：S1 用 5V 台架档、S3–S6 用 7.5V；S7 列未验证；S6 方向只记录；报告只做基础测试记录 + 放行门（不做受控三件套），签核栏留空；LeRobot 继续用本机 eb7a54c，新装机钉 0.6.1
 
 ## 产出
 
@@ -26,19 +27,19 @@
 - `agent_wiki/precheck-encoder-modulo-4096.md` — 预检折算取模
 - `agent_wiki/calibration-reuse-prompt-trap.md` — 沿用旧校准的假合格
 - `agent_wiki/calibration-consistency-check-scope.md` — 核对范围
-- `agent_wiki/openarm-mini-driver-generations.md` — 驱动两代（需按 research.md 更正 0.6.1）
+- `agent_wiki/openarm-mini-driver-generations.md` — 驱动两代（已更正：PyPI 0.6.1 起单臂）
 - `agent_wiki/teleop-side-required-for-delivery.md` — 交付须带 `--teleop.side`
-- `feature_wiki/standard-test-workflow.md` — 现有五阶段流程
+- `feature_wiki/standard-test-workflow.md` — 出厂测试工作流（操作步骤，兼作真机测试指引）
 - 兄弟工站：`so-arm101-workbench/test_reports/generate_archive.py`、`OpenARM/agent_wiki/openarm-factory-acceptance-release-gate.md`
 
 ## 里程碑
 
-- [ ] M0: 真机基线——现有流程在 OAML2026092901 上完整跑通 S1–S5，数据入日志
-- [ ] M1: 判据表 + 服务端判定 + 放行门骨架 + LeRobot 版本钉定
-- [ ] M2: S3 补判据、S4 关节身份与活动性、S1/S5 补项
-- [ ] M3: S6 官方驱动读数验证
-- [ ] M4: S9 归档报告 + VERSION/CHANGELOG；首批 3 台定标
-- [ ] M5（可选）: S0/S2 检查表 UI、S7 follower 配对、S8 增强复测
+- [ ] M0: 真机基线——在 OAML2026092901 上完整跑通（2026-10-22，与新流程合并进行）
+- [x] M1: 判据表 + 服务端判定 + 放行门 + LeRobot 版本记录（2026-10-21）
+- [x] M2: S3 补判据、S4 关节身份与活动性、S1/S5 补项（2026-10-21，待真机验收）
+- [x] M3: S6 官方驱动读数验证（2026-10-21，待真机验收）
+- [x] M4: S9 归档报告 + VERSION/CHANGELOG（2026-10-21）；首批 3 台定标未做
+- [ ] M5（可选）: S7 follower 配对、S8 增强复测（S0/S2/S9 检查表已随 M1 做完）
 
 ## 非协商条款
 
@@ -70,3 +71,5 @@
 | 日期 | 变更 |
 |------|------|
 | 2026-10-21 | 创建任务；完成调研与测试方案提案 v0.1 |
+| 2026-10-21 | 实现 M1–M4（工作站 0.2.0）：`app/criteria.py`、`app/gate.py`、`scripts/openarm_mini_readout.py`、页面八阶段；130 项单测通过；未做真机验收 |
+| 2026-10-21 | 按代码审查修 8 处：校准子进程独占串口锁、通信计时从拿到串口起算、编号不合法即拦、前置拦截不计入放行门、沿用提示处中止不作废校准、确认按提示去重、扫动窗口 8 秒、请求字段容错；136 项单测 |
