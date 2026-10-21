@@ -155,7 +155,7 @@ STS_BAUDRATE_VALUE = {
 FEEDBACK_DEFAULT_SECONDS = 8.0
 FEEDBACK_SAMPLE_INTERVAL_SEC = 0.05
 FEEDBACK_MOVEMENT_COUNTS = crit.FEEDBACK_MOVEMENT_COUNTS
-# 关节身份测试（S3）的采样参数
+# 关节身份测试（S4）的采样参数
 IDENTITY_DEFAULT_SECONDS = 8.0
 IDENTITY_SAMPLE_INTERVAL_SEC = 0.02
 
@@ -736,7 +736,7 @@ def _read_motor_baseline(client: FeetechSdkClient, motor_id: int) -> dict[str, A
 def scan_all_motors_read_only(port: str, hardware_profile: str = "") -> dict[str, Any]:
     """读遍 8 颗电机，不开扭矩、不下发目标位置、不写 EEPROM。
 
-    带上 hardware_profile 时按 S2 判据给出判定（电压、温度、状态、扭矩、固件一致）；
+    带上 hardware_profile 时按 S3 判据给出判定（电压、温度、状态、扭矩、固件一致）；
     一致性核对复用这里只为拿快照，不传档位。
     """
 
@@ -810,7 +810,7 @@ def _read_positions_round(client: FeetechSdkClient) -> dict[str, int | None]:
 def comm_stability_test(
     port: str, duration_sec: float = crit.COMM_STABILITY_SECONDS
 ) -> dict[str, Any]:
-    """S2 通信稳定：连续读 8 颗位置，任何一次读失败都计数。只读。"""
+    """S3 通信稳定：连续读 8 颗位置，任何一次读失败都计数。只读。"""
 
     duration_sec = max(5.0, min(float(duration_sec), 900.0))
     client = FeetechSdkClient(port)
@@ -849,7 +849,7 @@ def comm_stability_test(
 def joint_identity_test(
     port: str, motor_name: str, duration_sec: float = IDENTITY_DEFAULT_SECONDS
 ) -> dict[str, Any]:
-    """S3 关节身份：操作员只动 motor_name 这一个关节，同时采 8 颗位置。
+    """S4 关节身份：操作员只动 motor_name 这一个关节，同时采 8 颗位置。
 
     跨度最大的必须就是它，且远大于其余关节——抓装错位/接错线的电机。只读。
     """
@@ -919,7 +919,7 @@ def _unwrap_positions(samples: list[int]) -> list[int]:
     """把模 4096 的位置流接回连续序列。
 
     直接对模数流取 min/max 会把跨过 4095→0 接缝的一次摆动看成整圈，
-    先展开才能量出真实行程。实现在 criteria.py，S4 的关节身份测试共用。
+    先展开才能量出真实行程。实现在 criteria.py，S5 的关节身份测试共用。
     """
 
     return crit.unwrap_positions(samples)
@@ -990,9 +990,9 @@ def feedback_test(
 
     analysis = analyse_travel(samples)
     checks = [
-        crit.check("R.feedback_moved", analysis["moved"], analysis["span"]),
+        crit.check("S2.joint_confirmed", analysis["moved"], analysis["span"]),
         crit.check(
-            "R.feedback_span",
+            "S2.joint_span",
             analysis["span"] >= crit.FEEDBACK_SPAN_SUGGESTED_COUNTS,
             analysis["span"],
         ),
@@ -1472,11 +1472,11 @@ def verify_calibration_and_config(
     gripper_range = (
         int(gripper.get("range_max", 0)) - int(gripper.get("range_min", 0)) if gripper else None
     )
-    criterion = "S4.consistent_power_cycled" if power_cycled else "S4.consistent"
+    criterion = "S5.consistent_power_cycled" if power_cycled else "S5.consistent"
     checks = [
         crit.check(criterion, passed == len(OPENARM_MINI_MOTORS), passed),
         crit.check(
-            "S4.gripper_range",
+            "S5.gripper_range",
             gripper_range is not None and gripper_range > 0,
             gripper_range,
             drive_mode=gripper.get("drive_mode") if gripper else None,
@@ -2008,11 +2008,11 @@ def lerobot_version_info(executable: str) -> dict[str, Any]:
     return info
 
 
-# ---------- S5 官方驱动读数 ----------
+# ---------- S6 官方驱动读数 ----------
 
 READOUT_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "openarm_mini_readout.py"
 READOUT_MODES = ("zero", "gripper_open", "sweep")
-# 加载 LeRobot 驱动 + 握手约 2–3 秒后才开始采样，扫动窗口留足；页面提示「按钮恢复前一直摆」。（S5）
+# 加载 LeRobot 驱动 + 握手约 2–3 秒后才开始采样，扫动窗口留足；页面提示「按钮恢复前一直摆」。（S6）
 READOUT_SECONDS = {"zero": 2.0, "gripper_open": 2.0, "sweep": 8.0}
 
 
@@ -2023,7 +2023,7 @@ def side_of(robot_id: str) -> str:
 def official_readout(
     port: str, robot_id: str, mode: str, motor_name: str = ""
 ) -> dict[str, Any]:
-    """S5：在 LeRobot 环境里用官方 openarm_mini 驱动读动作值，再按判据表判定。
+    """S6：在 LeRobot 环境里用官方 openarm_mini 驱动读动作值，再按判据表判定。
 
     side 由编号的 L/R 决定，与交付给客户的 `--teleop.side` 一致。
     子进程期间持有串口锁，避免与本页其他操作抢同一个 tty。
@@ -2291,8 +2291,6 @@ INDEX_HTML = """<!doctype html>
   .verdict.PASS, td.PASS { color: var(--ok); } .verdict.FAIL, td.FAIL { color: var(--bad); }
   .verdict.HOLD, td.MISSING { color: var(--warn); }
   .version { color: #9fb2c4; font-size: 12px; margin-top: 2px; }
-  summary { cursor: pointer; font-size: 15px; }
-  details[open] summary { margin-bottom: 8px; }
   #gateResult td:nth-child(-n+4), #gateResult th { white-space: nowrap; }
   #gateResult td:nth-child(5) { width: 100%; }
 </style>
@@ -2374,6 +2372,45 @@ INDEX_HTML = """<!doctype html>
   </section>
 
   <section>
+    <h2 data-i18n="card_ids_title"></h2><span class="tag official" data-i18n="tag_official"></span>
+    <p class="hint" data-i18n-html="card_ids_hint"></p>
+    <div class="chips" id="motorChips"></div>
+    <div class="note warn" data-i18n="single_motor_warn"></div>
+    <div class="steps">
+      <div class="step" id="stepScan">
+        <div class="num">1</div>
+        <div class="body">
+          <b data-i18n="step_scan_title"></b><span class="tag official" data-i18n="tag_official"></span>
+          <p data-i18n="step_scan_desc"></p>
+          <p data-i18n="step_scan_broadcast_note"></p>
+          <label class="inline" style="padding:4px 0 0">
+            <input type="checkbox" id="deepScan" />
+            <span data-i18n="deep_scan_label"></span>
+          </label>
+          <p data-i18n="deep_scan_hint"></p>
+        </div>
+        <button id="btnScan" data-i18n="btn_scan"></button>
+      </div>
+      <div class="step" id="stepWrite">
+        <div class="num">2</div>
+        <div class="body"><b data-i18n="step_write_title"></b><span class="tag official" data-i18n="tag_official"></span><p id="writeTarget"></p></div>
+        <button id="btnWrite" data-i18n="btn_write" disabled></button>
+      </div>
+      <div class="step" id="stepRescan">
+        <div class="num">3</div>
+        <div class="body"><b data-i18n="step_rescan_title"></b><span class="tag local" data-i18n="tag_local"></span><p data-i18n="step_rescan_desc"></p></div>
+        <button id="btnRescan" data-i18n="btn_rescan" disabled></button>
+      </div>
+      <div class="step" id="stepFeedback">
+        <div class="num">4</div>
+        <div class="body"><b data-i18n="step_feedback_title"></b><span class="tag local" data-i18n="tag_local"></span><p data-i18n="step_feedback_desc"></p></div>
+        <button id="btnFeedback" disabled></button>
+      </div>
+    </div>
+    <div id="motorResult"></div>
+  </section>
+
+  <section>
     <h2 data-i18n="card_scan_title"></h2><span class="tag local" data-i18n="tag_local"></span>
     <p class="hint" data-i18n-html="card_scan_hint"></p>
     <div class="row">
@@ -2438,47 +2475,6 @@ INDEX_HTML = """<!doctype html>
   </section>
 
   <section>
-    <details id="reworkTool">
-    <summary><b data-i18n="card_ids_title"></b><span class="tag local" data-i18n="tag_rework"></span></summary>
-    <p class="hint" data-i18n-html="card_ids_hint"></p>
-    <div class="chips" id="motorChips"></div>
-    <div class="note warn" data-i18n="single_motor_warn"></div>
-    <div class="steps">
-      <div class="step" id="stepScan">
-        <div class="num">1</div>
-        <div class="body">
-          <b data-i18n="step_scan_title"></b><span class="tag official" data-i18n="tag_official"></span>
-          <p data-i18n="step_scan_desc"></p>
-          <p data-i18n="step_scan_broadcast_note"></p>
-          <label class="inline" style="padding:4px 0 0">
-            <input type="checkbox" id="deepScan" />
-            <span data-i18n="deep_scan_label"></span>
-          </label>
-          <p data-i18n="deep_scan_hint"></p>
-        </div>
-        <button id="btnScan" data-i18n="btn_scan"></button>
-      </div>
-      <div class="step" id="stepWrite">
-        <div class="num">2</div>
-        <div class="body"><b data-i18n="step_write_title"></b><span class="tag official" data-i18n="tag_official"></span><p id="writeTarget"></p></div>
-        <button id="btnWrite" data-i18n="btn_write" disabled></button>
-      </div>
-      <div class="step" id="stepRescan">
-        <div class="num">3</div>
-        <div class="body"><b data-i18n="step_rescan_title"></b><span class="tag local" data-i18n="tag_local"></span><p data-i18n="step_rescan_desc"></p></div>
-        <button id="btnRescan" data-i18n="btn_rescan" disabled></button>
-      </div>
-      <div class="step" id="stepFeedback">
-        <div class="num">4</div>
-        <div class="body"><b data-i18n="step_feedback_title"></b><span class="tag local" data-i18n="tag_local"></span><p data-i18n="step_feedback_desc"></p></div>
-        <button id="btnFeedback" disabled></button>
-      </div>
-    </div>
-    <div id="motorResult"></div>
-  </details>
-  </section>
-
-  <section>
     <h2 data-i18n="card_log_title"></h2>
     <div class="log" id="log"></div>
   </section>
@@ -2499,9 +2495,9 @@ const I18N = {
     port_manual_hint: "手动模式：列出全部 {total} 个串口节点，其中只有 {count} 个是 USB 适配器。",
     port_unplugged: "原先选中的 {port} 已经不在了，适配器可能被拔掉或重新枚举了。",
     supply_note: "本档位期望实测 <b>{expected}V</b>（限流 {limit}A）。扫描、写 ID 前工作站会读电机实际电压比对，偏差超过 1.0V 或超过额定 {rated}V 直接拒绝执行。工作站只记录档位，改不了实体电源——仍需人工核对红正黑负、OCP 关闭和 OUTPUT 状态。",
-    card_ids_title: "返修工具：单电机写 ID",
-    card_ids_hint: "正常流程不需要：电机 ID 在装配前由装配环节写好。只在 S2 发现某颗 ID 不对、需要拆线单独重写时使用。官方 <code>setup_motors()</code> 顺序从夹爪到肩部；<b>总线上只接这一颗电机</b>。不计入放行判定。",
-    single_motor_warn: "安全前提：写 ID 时总线上只能挂当前这一颗电机。多颗同时在线会一起被改成同一个 ID。",
+    card_ids_title: "S2 · 装配后逐颗写 ID",
+    card_ids_hint: "整臂已装好，ID 现在写：电机装在哪个关节就写哪个关节的 ID，序号不会错。按官方 <code>setup_motors()</code> 顺序从夹爪到肩部。<b>每次把驱动板的线直接接到当前这颗电机、断开它与相邻电机的连线</b>，四步全过再换下一颗；8 颗写完恢复 1→8 菊花链。",
+    single_motor_warn: "安全前提：写 ID 时总线上只能有当前这一颗电机。多颗同时在线会一起被改成同一个 ID——扫描时广播收到多于一个应答会直接报错。",
     step_scan_title: "扫描当前电机", step_scan_desc: "确认只有一颗在线，并读出它现在的 ID 和波特率。",
     btn_scan: "扫描",
     btn_busy: "进行中… {sec}s",
@@ -2517,14 +2513,14 @@ const I18N = {
     step_rescan_title: "断电 5 秒后复扫",
     step_rescan_desc: "ID 和波特率在 EEPROM，断电复扫通过才算真的写进去了。",
     btn_rescan: "复扫",
-    step_feedback_title: "只读反馈测试",
-    step_feedback_desc: "测试期间用手来回摆动这一颗电机的输出轴。工作站全程不上扭矩。",
+    step_feedback_title: "只动这个关节确认",
+    step_feedback_desc: "点开始后只来回摆动这一个关节（其余不动）。总线上只有这一颗，读数跟着变就证明 ID 写在了这个关节的电机上。全程不上扭矩。",
     btn_feedback: "开始（{sec} 秒）", btn_feedback_running: "读取中，请摆动关节…",
-    card_scan_title: "S2 · 整臂电气与通信",
+    card_scan_title: "S3 · 整臂电气与通信",
     card_scan_hint: "整臂固定在立柱上自然下垂，1→8 菊花链、7.5V 上电。八轴扫描按判据判定电压、温度、状态位、扭矩和固件一致，并记录过压/过温保护限值；再做 60 秒通信稳定。",
     btn_scan_all: "开始八轴扫描",
-    card_calib_title: "S4 · 官方校准与一致性核对",
-    card_calib_hint: "工作站不重写校准算法，只把官方 <code>lerobot-calibrate</code> 当子进程驱动。保存后自动核对一次；然后<b>断电 5 秒再上电</b>，点「断电后再核对」。",
+    card_calib_title: "S5 · 官方校准与一致性核对",
+    card_calib_hint: "工作站不重写校准算法，只把官方 <code>lerobot-calibrate</code> 当子进程驱动。保存后自动核对一次；然后<b>断电 5 秒再上电</b>，点「断电后再核对」。 校准会写入每颗电机：<code>Phase</code>=12、位置模式、零位偏移 <code>Homing_Offset</code>、量程上下限（J1–J7 为整圈，夹爪为实测闭合/张开），并在电脑上保存校准文件；不写 ID，不上扭矩。",
     btn_precheck: "先做只读预检", btn_cal_start: "开始官方校准", btn_cal_abort: "中止",
     btn_verify: "一致性核对",
     btn_export: "下载本次测试 JSON",
@@ -2574,11 +2570,11 @@ const I18N = {
     log_cal_saved: "校准已保存，自动执行一致性核对。",
     log_exported: "已导出 {count} 条记录",
     stage_station: "S1 准备",
-    stage_electrical: "S2 整臂",
-    stage_identity: "S3 关节身份",
-    stage_calibration: "S4 校准",
-    stage_readout: "S5 驱动读数",
-    stage_release: "S6 放行",
+    stage_electrical: "S3 整臂",
+    stage_identity: "S4 关节身份",
+    stage_calibration: "S5 校准",
+    stage_readout: "S6 驱动读数",
+    stage_release: "S7 放行",
     version_line: "工作站 {version} · 判据 {criteria} · LeRobot {lerobot}",
     f_operator: "操作员",
     btn_submit_checklist: "确认并记录",
@@ -2592,7 +2588,7 @@ const I18N = {
     col_firmware: "固件",
     scan_need_field_profile: "未选 7.5V 档：本次扫描不计入放行门。",
     scan_all_extra: "固件 {firmware}，电压极差 {spread}V。",
-    card_identity_title: "S3 · 关节身份与活动性",
+    card_identity_title: "S4 · 关节身份与活动性",
     card_identity_hint: "整臂下垂。选一个关节，点开始后<b>只动这一个关节</b>，走完它的机械行程，其他关节扶住不动。跨度最大的必须就是它——抓装错位、接错线的电机。全程只读。",
     btn_identity: "开始（{sec} 秒），只动选中的关节",
     identity_ok: "{title}：跨度 {span}，次大 {runner_up}，身份正确。",
@@ -2602,7 +2598,7 @@ const I18N = {
     verify_pc_label: "【断电后】",
     verify_gripper_range: "夹爪量程 {range} 计数（记录项）。",
     verify_next_pc: "下一步：断电 5 秒再上电，点「断电后再核对」。",
-    card_readout_title: "S5 · 官方驱动读数验证",
+    card_readout_title: "S6 · 官方驱动读数验证",
     card_readout_hint: "官方第 7 步 <code>lerobot-teleoperate</code> 必须接 follower。这里用同一个官方 <code>openarm_mini</code> 驱动只读 leader 半边：校准文件、左右侧方向、J6/J7 对调、夹爪换算都走官方代码。驱动连接时会写官方运行期配置，不上扭矩。须在校准保存之后做。",
     btn_readout_zero: "零位读数（下垂、夹爪闭合）",
     btn_readout_open: "夹爪张开读数",
@@ -2621,7 +2617,7 @@ const I18N = {
     col_key: "动作键",
     col_mean: "均值",
     col_span_deg: "跨度",
-    card_release_title: "S6 · 放行与归档",
+    card_release_title: "S7 · 放行与归档",
     card_release_hint: "放行门只看服务端会话日志：每项取最近一次记录，缺项为 HOLD。归档生成 <code>test_reports/Leader/&lt;编号&gt;/</code> 下的测试记录（md / html / pdf）、校准参数、会话日志和放行判定。",
     btn_gate: "刷新放行门",
     btn_archive: "生成归档报告",
@@ -2635,7 +2631,7 @@ const I18N = {
     status_pass: "通过",
     status_fail: "失败",
     status_missing: "缺项",
-    tag_rework: "返修",
+    stage_ids: "S2 写 ID",
   },
   en: {
     lang_label: "Language",
@@ -2652,9 +2648,9 @@ const I18N = {
     port_manual_hint: "Manual mode: all {total} serial nodes are listed, of which only {count} are USB adapters.",
     port_unplugged: "The previously selected {port} is gone — the adapter may have been unplugged or re-enumerated.",
     supply_note: "This profile expects a measured <b>{expected}V</b> (current limit {limit}A). Before every scan and ID write the workstation reads the actual motor voltage and compares: a deviation above 1.0V, or anything above the {rated}V rating, is refused outright. The workstation only records the profile — it cannot change the physical supply, so still check polarity, that OCP is off, and the OUTPUT state by hand.",
-    card_ids_title: "Repair tool: write the ID of a single motor",
-    card_ids_hint: "Not part of the normal flow: motor IDs are written by assembly before the arm is built. Use this only when S2 finds a wrong ID and that motor must be re-written on its own. Official <code>setup_motors()</code> order runs from the gripper to the shoulder; <b>connect only this one motor to the bus</b>. Not counted by the release gate.",
-    single_motor_warn: "Safety precondition: only the current motor may be on the bus while writing an ID. Several motors online at once all get the same ID.",
+    card_ids_title: "S2 · Write IDs one motor at a time, after assembly",
+    card_ids_hint: "The arm is assembled, so IDs are written now: each motor gets the ID of the joint it actually sits in, so the order cannot be mixed up. Follow the official <code>setup_motors()</code> order from the gripper to the shoulder. <b>Each time, plug the driver-board cable straight into the current motor and unplug its link to the neighbouring motors</b>; all four steps must pass before the next one. After all 8, restore the 1→8 daisy chain.",
+    single_motor_warn: "Safety precondition: only the current motor may be on the bus while writing an ID. Several motors online would all get the same ID — the scan refuses as soon as the broadcast gets more than one answer.",
     step_scan_title: "Scan the connected motor",
     step_scan_desc: "Confirm only one motor is online and read its current ID and baud rate.",
     btn_scan: "Scan",
@@ -2671,14 +2667,14 @@ const I18N = {
     step_rescan_title: "Power down 5 s, then rescan",
     step_rescan_desc: "ID and baud rate live in EEPROM; only a rescan after a power cycle proves they were really stored.",
     btn_rescan: "Rescan",
-    step_feedback_title: "Read-only feedback test",
-    step_feedback_desc: "Move this motor's output shaft back and forth by hand during the test. The workstation never enables torque.",
+    step_feedback_title: "Confirm by moving this joint",
+    step_feedback_desc: "After pressing start, move only this joint back and forth (keep the others still). Only this motor is on the bus, so a changing reading proves the ID went to the motor in this joint. Torque stays off.",
     btn_feedback: "Start ({sec} s)", btn_feedback_running: "Reading — move the joint…",
-    card_scan_title: "S2 · Full-arm electrical and communication",
+    card_scan_title: "S3 · Full-arm electrical and communication",
     card_scan_hint: "Arm mounted on the post and hanging freely, daisy chain 1→8, powered at 7.5 V. The eight-axis scan judges voltage, temperature, status bits, torque and matching firmware, and records the over-voltage / over-temperature limits; then run the 60-second communication check.",
     btn_scan_all: "Start eight-axis scan",
-    card_calib_title: "S4 · Official calibration and consistency check",
-    card_calib_hint: "The workstation does not reimplement calibration; it drives the official <code>lerobot-calibrate</code> as a subprocess. After saving it checks once automatically; then <b>power off for 5 seconds and back on</b> and press “Check again after power cycle”.",
+    card_calib_title: "S5 · Official calibration and consistency check",
+    card_calib_hint: "The workstation does not reimplement calibration; it drives the official <code>lerobot-calibrate</code> as a subprocess. After saving it checks once automatically; then <b>power off for 5 seconds and back on</b> and press “Check again after power cycle”. Calibration writes to every motor: <code>Phase</code>=12, position mode, the zero offset <code>Homing_Offset</code> and the position limits (full turn for J1–J7, measured closed/open for the gripper), and saves a calibration file on this computer; no IDs are written and torque stays off.",
     btn_precheck: "Run read-only precheck", btn_cal_start: "Start official calibration",
     btn_cal_abort: "Abort", btn_verify: "Consistency check",
     btn_export: "Download this test as JSON",
@@ -2728,11 +2724,11 @@ const I18N = {
     log_cal_saved: "Calibration saved; running the consistency check automatically.",
     log_exported: "Exported {count} records",
     stage_station: "S1 Prepare",
-    stage_electrical: "S2 Full arm",
-    stage_identity: "S3 Joint identity",
-    stage_calibration: "S4 Calibration",
-    stage_readout: "S5 Driver readout",
-    stage_release: "S6 Release",
+    stage_electrical: "S3 Full arm",
+    stage_identity: "S4 Joint identity",
+    stage_calibration: "S5 Calibration",
+    stage_readout: "S6 Driver readout",
+    stage_release: "S7 Release",
     version_line: "Workstation {version} · criteria {criteria} · LeRobot {lerobot}",
     f_operator: "Operator",
     btn_submit_checklist: "Confirm and record",
@@ -2746,7 +2742,7 @@ const I18N = {
     col_firmware: "Firmware",
     scan_need_field_profile: "The 7.5 V profile is not selected: this scan does not count for the release gate.",
     scan_all_extra: "Firmware {firmware}, voltage spread {spread} V.",
-    card_identity_title: "S3 · Joint identity and mobility",
+    card_identity_title: "S4 · Joint identity and mobility",
     card_identity_hint: "Let the arm hang. Pick a joint, press start and <b>move only that joint</b> through its mechanical travel while holding the others still. The largest travel must be on that joint — this catches motors mounted in the wrong place or wired wrongly. Read-only throughout.",
     btn_identity: "Start ({sec} s), move only the selected joint",
     identity_ok: "{title}: travel {span}, runner-up {runner_up}, identity correct.",
@@ -2756,7 +2752,7 @@ const I18N = {
     verify_pc_label: "[after power cycle]",
     verify_gripper_range: "Gripper range {range} counts (recorded).",
     verify_next_pc: "Next: power off for 5 seconds, power on and press “Check again after power cycle”.",
-    card_readout_title: "S5 · Official driver readout",
+    card_readout_title: "S6 · Official driver readout",
     card_readout_hint: "Official step 7 <code>lerobot-teleoperate</code> needs a follower. This reads only the leader half through the same official <code>openarm_mini</code> driver: calibration file, side-dependent direction, J6/J7 swap and gripper conversion all run through official code. Connecting writes the official runtime settings; torque stays off. Do this after the calibration is saved.",
     btn_readout_zero: "Zero-pose readout (hanging, gripper closed)",
     btn_readout_open: "Gripper-open readout",
@@ -2775,7 +2771,7 @@ const I18N = {
     col_key: "Action key",
     col_mean: "Mean",
     col_span_deg: "Span",
-    card_release_title: "S6 · Release and archive",
+    card_release_title: "S7 · Release and archive",
     card_release_hint: "The release gate only reads the server-side session log: the latest record counts for each item, missing items mean HOLD. Archiving writes the test record (md / html / pdf), calibration, session log and release verdict under <code>test_reports/Leader/&lt;serial&gt;/</code>.",
     btn_gate: "Refresh release gate",
     btn_archive: "Generate archive report",
@@ -2789,7 +2785,7 @@ const I18N = {
     status_pass: "Passed",
     status_fail: "Failed",
     status_missing: "Missing",
-    tag_rework: "repair",
+    stage_ids: "S2 IDs",
   },
   de: {
     lang_label: "Sprache",
@@ -2806,9 +2802,9 @@ const I18N = {
     port_manual_hint: "Manueller Modus: alle {total} seriellen Knoten werden aufgelistet, davon sind nur {count} USB-Adapter.",
     port_unplugged: "Der zuvor gewählte Port {port} ist nicht mehr vorhanden — der Adapter wurde möglicherweise abgezogen oder neu erkannt.",
     supply_note: "Dieses Profil erwartet gemessene <b>{expected}V</b> (Strombegrenzung {limit}A). Vor jedem Scan und jedem ID-Schreibvorgang liest der Prüfplatz die tatsächliche Motorspannung und vergleicht: eine Abweichung über 1,0V oder ein Wert über der Nennspannung von {rated}V wird direkt abgelehnt. Der Prüfplatz protokolliert nur das Profil und kann das Netzteil nicht ändern — Polarität, ausgeschaltete OCP und OUTPUT-Zustand bleiben manuell zu prüfen.",
-    card_ids_title: "Reparaturwerkzeug: ID eines einzelnen Motors schreiben",
-    card_ids_hint: "Nicht Teil des normalen Ablaufs: Die Motor-IDs schreibt die Montage vor dem Zusammenbau. Nur verwenden, wenn S2 eine falsche ID findet und dieser Motor einzeln neu beschrieben werden muss. Offizielle <code>setup_motors()</code>-Reihenfolge vom Greifer zur Schulter; <b>nur diesen einen Motor am Bus anschließen</b>. Zählt nicht für die Freigabe.",
-    single_motor_warn: "Sicherheitsvoraussetzung: Beim Schreiben einer ID darf nur der aktuelle Motor am Bus hängen. Mehrere gleichzeitig angeschlossene Motoren erhalten alle dieselbe ID.",
+    card_ids_title: "S2 · IDs nach der Montage einzeln schreiben",
+    card_ids_hint: "Der Arm ist montiert, daher werden die IDs jetzt geschrieben: Jeder Motor bekommt die ID des Gelenks, in dem er tatsächlich sitzt, so kann die Reihenfolge nicht vertauscht werden. Offizielle <code>setup_motors()</code>-Reihenfolge vom Greifer zur Schulter. <b>Jedes Mal das Kabel der Treiberplatine direkt am aktuellen Motor einstecken und seine Verbindung zu den Nachbarmotoren trennen</b>; erst wenn alle vier Schritte bestanden sind, kommt der nächste. Nach allen 8 die Daisy-Chain 1→8 wiederherstellen.",
+    single_motor_warn: "Sicherheitsvoraussetzung: Beim ID-Schreiben darf nur der aktuelle Motor am Bus sein. Mehrere Motoren würden alle dieselbe ID erhalten — der Scan bricht ab, sobald der Broadcast mehr als eine Antwort erhält.",
     step_scan_title: "Angeschlossenen Motor scannen",
     step_scan_desc: "Bestätigen, dass nur ein Motor online ist, und dessen aktuelle ID und Baudrate lesen.",
     btn_scan: "Scannen",
@@ -2825,14 +2821,14 @@ const I18N = {
     step_rescan_title: "5 s ausschalten, dann erneut scannen",
     step_rescan_desc: "ID und Baudrate liegen im EEPROM; erst ein erneuter Scan nach dem Aus- und Einschalten beweist, dass sie wirklich gespeichert wurden.",
     btn_rescan: "Erneut scannen",
-    step_feedback_title: "Nur-Lese-Rückmeldungstest",
-    step_feedback_desc: "Die Abtriebsachse dieses Motors während des Tests von Hand hin und her bewegen. Der Prüfplatz aktiviert nie das Drehmoment.",
+    step_feedback_title: "Durch Bewegen dieses Gelenks bestätigen",
+    step_feedback_desc: "Nach Start nur dieses Gelenk hin und her bewegen (die anderen ruhig halten). Nur dieser Motor ist am Bus, ein sich ändernder Wert beweist also, dass die ID im Motor dieses Gelenks liegt. Kein Drehmoment.",
     btn_feedback: "Starten ({sec} s)", btn_feedback_running: "Wird gelesen — Gelenk bewegen…",
-    card_scan_title: "S2 · Elektrik und Kommunikation des Gesamtarms",
+    card_scan_title: "S3 · Elektrik und Kommunikation des Gesamtarms",
     card_scan_hint: "Arm frei hängend an der Säule, Daisy-Chain 1→8, mit 7,5 V versorgt. Der Scan aller acht Achsen bewertet Spannung, Temperatur, Statusbits, Drehmoment und gleiche Firmware und erfasst die Überspannungs- / Übertemperaturgrenzen; danach die 60-Sekunden-Kommunikationsprüfung.",
     btn_scan_all: "Scan aller acht Achsen starten",
-    card_calib_title: "S4 · Offizielle Kalibrierung und Konsistenzprüfung",
-    card_calib_hint: "Der Arbeitsplatz implementiert die Kalibrierung nicht neu, sondern steuert das offizielle <code>lerobot-calibrate</code> als Unterprozess. Nach dem Speichern wird einmal automatisch geprüft; dann <b>5 Sekunden ausschalten und wieder einschalten</b> und „Nach Aus/Ein erneut prüfen“ drücken.",
+    card_calib_title: "S5 · Offizielle Kalibrierung und Konsistenzprüfung",
+    card_calib_hint: "Der Arbeitsplatz implementiert die Kalibrierung nicht neu, sondern steuert das offizielle <code>lerobot-calibrate</code> als Unterprozess. Nach dem Speichern wird einmal automatisch geprüft; dann <b>5 Sekunden ausschalten und wieder einschalten</b> und „Nach Aus/Ein erneut prüfen“ drücken. Die Kalibrierung schreibt in jeden Motor: <code>Phase</code>=12, Positionsmodus, den Null-Offset <code>Homing_Offset</code> und die Positionsgrenzen (volle Umdrehung für J1–J7, gemessen geschlossen/offen für den Greifer) und speichert eine Kalibrierdatei auf diesem Rechner; keine IDs, kein Drehmoment.",
     btn_precheck: "Nur-Lese-Vorprüfung", btn_cal_start: "Offizielle Kalibrierung starten",
     btn_cal_abort: "Abbrechen", btn_verify: "Abgleich",
     btn_export: "Diesen Test als JSON herunterladen",
@@ -2883,11 +2879,11 @@ const I18N = {
     log_cal_saved: "Kalibrierung gespeichert; Abgleich wird automatisch ausgeführt.",
     log_exported: "{count} Datensätze exportiert",
     stage_station: "S1 Vorbereiten",
-    stage_electrical: "S2 Gesamtarm",
-    stage_identity: "S3 Gelenkidentität",
-    stage_calibration: "S4 Kalibrierung",
-    stage_readout: "S5 Treiber-Auslesen",
-    stage_release: "S6 Freigabe",
+    stage_electrical: "S3 Gesamtarm",
+    stage_identity: "S4 Gelenkidentität",
+    stage_calibration: "S5 Kalibrierung",
+    stage_readout: "S6 Treiber-Auslesen",
+    stage_release: "S7 Freigabe",
     version_line: "Arbeitsplatz {version} · Kriterien {criteria} · LeRobot {lerobot}",
     f_operator: "Bediener",
     btn_submit_checklist: "Bestätigen und erfassen",
@@ -2901,7 +2897,7 @@ const I18N = {
     col_firmware: "Firmware",
     scan_need_field_profile: "Das 7,5-V-Profil ist nicht gewählt: dieser Scan zählt nicht für die Freigabe.",
     scan_all_extra: "Firmware {firmware}, Spannungsstreuung {spread} V.",
-    card_identity_title: "S3 · Gelenkidentität und Beweglichkeit",
+    card_identity_title: "S4 · Gelenkidentität und Beweglichkeit",
     card_identity_hint: "Arm hängen lassen. Ein Gelenk wählen, Start drücken und <b>nur dieses Gelenk</b> über seinen mechanischen Weg bewegen, die anderen festhalten. Der größte Weg muss auf diesem Gelenk liegen — so fallen falsch eingebaute oder falsch verkabelte Motoren auf. Durchgehend nur lesend.",
     btn_identity: "Start ({sec} s), nur das gewählte Gelenk bewegen",
     identity_ok: "{title}: Weg {span}, zweitgrößter {runner_up}, Identität korrekt.",
@@ -2911,7 +2907,7 @@ const I18N = {
     verify_pc_label: "[nach Aus/Ein]",
     verify_gripper_range: "Greiferbereich {range} Zählwerte (erfasst).",
     verify_next_pc: "Weiter: 5 Sekunden ausschalten, einschalten und „Nach Aus/Ein erneut prüfen“ drücken.",
-    card_readout_title: "S5 · Offizielles Treiber-Auslesen",
+    card_readout_title: "S6 · Offizielles Treiber-Auslesen",
     card_readout_hint: "Offizieller Schritt 7 <code>lerobot-teleoperate</code> braucht einen Follower. Hier wird nur die Leader-Hälfte über denselben offiziellen <code>openarm_mini</code>-Treiber gelesen: Kalibrierdatei, seitenabhängige Richtung, J6/J7-Tausch und Greiferumrechnung laufen durch offiziellen Code. Beim Verbinden werden die offiziellen Laufzeiteinstellungen geschrieben; kein Drehmoment. Erst nach gespeicherter Kalibrierung.",
     btn_readout_zero: "Nullstellung auslesen (hängend, Greifer zu)",
     btn_readout_open: "Greifer offen auslesen",
@@ -2930,7 +2926,7 @@ const I18N = {
     col_key: "Aktionsschlüssel",
     col_mean: "Mittelwert",
     col_span_deg: "Spanne",
-    card_release_title: "S6 · Freigabe und Archiv",
+    card_release_title: "S7 · Freigabe und Archiv",
     card_release_hint: "Die Freigabe liest nur das serverseitige Sitzungsprotokoll: je Punkt zählt der letzte Eintrag, fehlende Punkte bedeuten HOLD. Das Archiv legt Prüfprotokoll (md / html / pdf), Kalibrierung, Sitzungsprotokoll und Freigabeentscheidung unter <code>test_reports/Leader/&lt;Seriennummer&gt;/</code> ab.",
     btn_gate: "Freigabe aktualisieren",
     btn_archive: "Archivbericht erzeugen",
@@ -2944,7 +2940,7 @@ const I18N = {
     status_pass: "Bestanden",
     status_fail: "Fehlgeschlagen",
     status_missing: "Fehlt",
-    tag_rework: "Reparatur",
+    stage_ids: "S2 IDs",
   },
 };
 
@@ -2956,9 +2952,9 @@ const S = {
   detect: null, portSignature: "", portTimer: null,
   gate: null, gateTimer: null, identityOrder: [], identityCursor: 0, identityDone: new Set(),
 };
-const STAGE_KEYS = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
-const STAGE_LABELS = { S1: 'stage_station', S2: 'stage_electrical', S3: 'stage_identity',
-  S4: 'stage_calibration', S5: 'stage_readout', S6: 'stage_release' };
+const STAGE_KEYS = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'];
+const STAGE_LABELS = { S1: 'stage_station', S2: 'stage_ids', S3: 'stage_electrical', S4: 'stage_identity',
+  S5: 'stage_calibration', S6: 'stage_readout', S7: 'stage_release' };
 const STATUS_LABELS = { PASS: 'status_pass', FAIL: 'status_fail', MISSING: 'status_missing' };
 const READOUT_MODES = { zero: 'readout_mode_zero', gripper_open: 'readout_mode_open', sweep: 'readout_mode_sweep' };
 const SERIAL_RE = /^OAM[LR]\\d{8}\\d{2}$/;
@@ -3070,8 +3066,14 @@ async function refreshGate() {
   const data = await api('/api/release-gate?robot_id=' + encodeURIComponent(robotId()));
   S.gate = data;
   const passed = (key) => data.items.some((i) => i.key === key && i.status === 'PASS');
-  S.identityOrder.forEach((name) => { if (passed('S3.' + name)) S.identityDone.add(name); });
-  // 恢复进度后把光标放到第一个没做完的关节上。
+  S.order.forEach((name) => { if (passed('S2.' + name + '.joint')) S.doneMotors.add(name); });
+  S.identityOrder.forEach((name) => { if (passed('S4.' + name)) S.identityDone.add(name); });
+  // 恢复进度后把光标放到第一颗没做完的电机上；正在做的那一颗不打断。
+  const idle = !S.step.scanned && !S.step.written && !S.step.rescanned;
+  if (idle && S.doneMotors.has(currentMotor())) {
+    const next = S.order.findIndex((name) => !S.doneMotors.has(name));
+    if (next >= 0) S.cursor = next;
+  }
   if (S.identityDone.has(S.identityOrder[S.identityCursor])) {
     const next = S.identityOrder.findIndex((name) => !S.identityDone.has(name));
     if (next >= 0) S.identityCursor = next;

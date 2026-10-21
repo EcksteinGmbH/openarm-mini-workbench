@@ -26,15 +26,14 @@ import criteria as crit
 import messages
 from messages import m as _m
 
-# 测试站只测装配好的整臂。S1 准备 → S2 整臂电气与通信 → S3 关节身份 → S4 官方校准
-# → S5 官方驱动读数 → S6 放行；S7 follower 配对、S8 增强复测可选。
-# 单电机写 ID 是返修工具，不进放行门（装配前写 ID 是装配环节的事）。
-STAGES = ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8")
-REQUIRED_STAGES = ("S1", "S2", "S3", "S4", "S5")
-OPTIONAL_STAGES = ("S7", "S8")
+# 测试站测装配好的整臂。S1 准备 → S2 装配后逐颗写 ID → S3 整臂电气与通信 → S4 关节身份
+# → S5 官方校准 → S6 官方驱动读数 → S7 放行；S8 follower 配对、S9 增强复测可选。
+STAGES = ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9")
+REQUIRED_STAGES = ("S1", "S2", "S3", "S4", "S5", "S6")
+OPTIONAL_STAGES = ("S8", "S9")
 DEFAULT_BAUDRATE = 1_000_000
 FIELD_PROFILE = "mini_field_7v5"
-# S5 必做的扫动：J6/J7 验证驱动的对调，其余关节的身份已由 S3 在寄存器层验证。
+# S6 必做的扫动：J6/J7 验证驱动的对调，其余关节的身份已由 S4 在寄存器层验证。
 READOUT_SWEEPS = ("joint_6", "joint_7")
 
 PASS, FAIL, MISSING = "PASS", "FAIL", "MISSING"
@@ -130,7 +129,33 @@ def evaluate(records: list[dict[str, Any]], motors: dict[str, dict[str, Any]]) -
     items.append(_item("S1", "S1.checklist", _m("gate_checklist"), record,
                        lambda r: bool(_result(r).get("ok"))))
 
-    # S2：判过的整臂扫描（旧格式记录不算）+ 通信稳定
+    # S2：装配后逐颗写 ID → 断电复扫 → 只动这个关节确认（官方顺序夹爪 → J1）
+    for name in reversed(ordered):
+        target = motors[name]["id"]
+        title = motor_title(motors, name)
+        # 只认 7.5V 档下写的 ID：0.2.0 及以前是装配前在 5V 台架上写的，不是「装配后按关节写」。
+        write = _latest(records, "init-id", lambda r, n=name: _request(r).get("motor") == n
+                        and _request(r).get("hardware_profile") == FIELD_PROFILE)
+        items.append(_item("S2", f"S2.{name}.write", _m("gate_write", title=title), write,
+                           lambda r: bool(_result(r).get("verified"))))
+        rescan = _latest(
+            records,
+            "scan-current",
+            lambda r, t=target: _as_int(_request(r).get("initial_id")) == t
+            and _as_int(_request(r).get("initial_baudrate")) == DEFAULT_BAUDRATE,
+            after=write.get("recorded_at", "") if write else "",
+        )
+        items.append(_item("S2", f"S2.{name}.rescan", _m("gate_rescan", title=title),
+                           rescan if write else None,
+                           lambda r, t=target: (_result(r).get("detected") or {}).get("id") == t))
+        confirm = _latest(records, "feedback-test", lambda r, n=name: _request(r).get("motor") == n,
+                          after=write.get("recorded_at", "") if write else "")
+        items.append(_item("S2", f"S2.{name}.joint", _m("gate_joint_confirm", title=title),
+                           confirm if write else None,
+                           lambda r: bool(_result(r).get("ok")),
+                           lambda r: _m("gate_detail_span", span=_result(r).get("span", "-"))))
+
+    # S3：判过的整臂扫描（旧格式记录不算）+ 通信稳定
     scan = _latest(records, "scan-all", lambda r: bool(_result(r).get("judged")) or bool(_error(r)))
 
     def scan_passed(record: dict[str, Any]) -> bool:
@@ -143,40 +168,40 @@ def evaluate(records: list[dict[str, Any]], motors: dict[str, dict[str, Any]]) -
             return _m("gate_detail_need_field_profile")
         return _m("gate_detail_scan", passed=result.get("passed", 0), total=result.get("total", 8))
 
-    items.append(_item("S2", "S2.scan", _m("gate_scan"), scan, scan_passed, scan_detail))
+    items.append(_item("S3", "S3.scan", _m("gate_scan"), scan, scan_passed, scan_detail))
     comm = _latest(records, "comm-stability")
-    items.append(_item("S2", "S2.comm", _m("gate_comm"), comm, lambda r: bool(_result(r).get("ok")),
+    items.append(_item("S3", "S3.comm", _m("gate_comm"), comm, lambda r: bool(_result(r).get("ok")),
                        lambda r: _m("gate_detail_comm", rounds=_result(r).get("rounds", 0),
                                     failures=_result(r).get("failures", "-"))))
 
-    # S3：逐关节身份
+    # S4：逐关节身份
     for name in ordered:
         record = _latest(records, "joint-identity", lambda r, n=name: _request(r).get("motor") == n)
-        items.append(_item("S3", f"S3.{name}", _m("gate_identity", title=motor_title(motors, name)),
+        items.append(_item("S4", f"S4.{name}", _m("gate_identity", title=motor_title(motors, name)),
                            record, lambda r: bool(_result(r).get("ok"))))
 
-    # S4：预检 → 校准保存 → 核对 → 断电核对
+    # S5：预检 → 校准保存 → 核对 → 断电核对
     precheck = _latest(records, "calibration/precheck")
-    items.append(_item("S4", "S4.precheck", _m("gate_precheck"), precheck,
+    items.append(_item("S5", "S5.precheck", _m("gate_precheck"), precheck,
                        lambda r: bool(_result(r).get("overall_ok"))))
     finished = _latest(records, "calibration/finished", _calibration_attempted)
-    items.append(_item("S4", "S4.saved", _m("gate_saved"), finished,
+    items.append(_item("S5", "S5.saved", _m("gate_saved"), finished,
                        lambda r: _result(r).get("phase") == "saved",
                        lambda r: "" if _result(r).get("phase") == "saved"
                        else _m("gate_detail_phase", phase=_result(r).get("phase", "-"))))
     saved = _latest(records, "calibration/finished", lambda r: _result(r).get("phase") == "saved")
     saved_at = saved.get("recorded_at", "") if saved else ""
-    for key, power_cycled, label in (("S4.verify", False, "gate_verify"),
-                                     ("S4.verify_power_cycled", True, "gate_verify_power_cycled")):
+    for key, power_cycled, label in (("S5.verify", False, "gate_verify"),
+                                     ("S5.verify_power_cycled", True, "gate_verify_power_cycled")):
         record = _latest(
             records,
             "verify-calibration",
             lambda r, pc=power_cycled: bool(_request(r).get("power_cycled")) == pc,
             after=saved_at,
         ) if saved else None
-        items.append(_item("S4", key, _m(label), record, lambda r: bool(_result(r).get("overall_ok"))))
+        items.append(_item("S5", key, _m(label), record, lambda r: bool(_result(r).get("overall_ok"))))
 
-    # S5：官方驱动读数，必须晚于这份校准
+    # S6：官方驱动读数，必须晚于这份校准
     readouts = [("zero", ""), ("gripper_open", "")] + [("sweep", n) for n in READOUT_SWEEPS]
     for mode, name in readouts:
         record = _latest(
@@ -188,7 +213,7 @@ def evaluate(records: list[dict[str, Any]], motors: dict[str, dict[str, Any]]) -
         ) if saved else None
         label = (_m("gate_readout_sweep", title=motor_title(motors, name)) if name
                  else _m("gate_readout_" + mode))
-        items.append(_item("S5", f"S5.{mode}{'.' + name if name else ''}", label, record,
+        items.append(_item("S6", f"S6.{mode}{'.' + name if name else ''}", label, record,
                            lambda r: bool(_result(r).get("ok"))))
 
     statuses = {item["status"] for item in items}
@@ -196,8 +221,8 @@ def evaluate(records: list[dict[str, Any]], motors: dict[str, dict[str, Any]]) -
     stages = {}
     for stage in STAGES:
         stage_items = [i for i in items if i["stage"] == stage]
-        if stage == "S6":
-            # S6 是放行本身：前面全部通过即通过。
+        if stage == "S7":
+            # S7 是放行本身：前面全部通过即通过。
             stages[stage] = PASS if verdict == PASS else MISSING
         elif not stage_items:
             stages[stage] = "optional"
@@ -290,7 +315,7 @@ def build_report(
             ["供电", "7.5V（官方 BOM），整臂装配完成后测试"],
         ])),
         ("p", "本记录由工作站会话日志自动生成，实测数值未经人工转录。测试对象为装配完成的整臂，"
-              "电机 ID 由装配环节写入，本测试站只做软件测试。每个必做项取最近一次记录；"
+              "电机 ID 在装配完成后由本测试站逐颗写入。每个必做项取最近一次记录；"
               "校准之后的项只采信晚于最近一次已保存校准的记录。结论 PASS 需全部必做项通过，"
               "缺项为 HOLD，任一最近记录失败为 FAIL。全程未开启扭矩、未下发目标位置。"),
         ("h2", "1 放行判定"),
@@ -302,8 +327,39 @@ def build_report(
     ]
 
     # S2
+    rows = []
+    for name in reversed(ordered):
+        write = _latest(records, "init-id", lambda r, n=name: _request(r).get("motor") == n
+                        and _request(r).get("hardware_profile") == FIELD_PROFILE)
+        after = write.get("recorded_at", "") if write else ""
+        rescan = _latest(records, "scan-current",
+                         lambda r, t=motors[name]["id"]: _as_int(_request(r).get("initial_id")) == t,
+                         after=after)
+        confirm = _latest(records, "feedback-test", lambda r, n=name: _request(r).get("motor") == n,
+                          after=after)
+        wr = _result(write) if write else {}
+        cf = _result(confirm) if confirm else {}
+        baseline = _result(rescan).get("baseline", {}) if rescan else {}
+        rows.append([
+            motor_title(motors, name),
+            _fmt((wr.get("detected") or {}).get("id")),
+            _fmt(wr.get("target_id")),
+            "是" if rescan and not _error(rescan) else "-",
+            _fmt(cf.get("span")),
+            _fmt(cf.get("voltage_v")),
+            _fmt(baseline.get("firmware")),
+            "通过" if cf.get("ok") else ("失败" if confirm else "无记录"),
+        ])
+    blocks += [
+        ("h2", "3 S2 装配后逐颗写 ID"),
+        ("p", "整臂装配完成后，驱动板每次只接一颗电机：广播确认总线上只有它 → 写该关节的 ID 与 1 Mbps"
+              " → 断电 ≥5 秒复扫 → 只动这个关节确认读数随之变化。电机已装在关节上，ID 与位置一一对应。"),
+        ("table", (["关节", "原 ID", "写入 ID", "断电复扫", "确认跨度", "电压 V", "固件", "确认"], rows)),
+    ]
+
+    # S3
     scan = _latest(records, "scan-all", lambda r: bool(_result(r).get("judged")))
-    blocks.append(("h2", "3 S2 整臂电气与通信"))
+    blocks.append(("h2", "4 S3 整臂电气与通信"))
     if scan:
         sr = _result(scan)
         blocks.append(("table", (
@@ -326,7 +382,7 @@ def build_report(
         blocks.append(("p", f"通信稳定：{_fmt(cr.get('duration_sec'))} s，{_fmt(cr.get('rounds'))} 轮 / "
                             f"{_fmt(cr.get('reads'))} 次读，失败 {_fmt(cr.get('failures'))}。"))
 
-    # S3
+    # S4
     rows = []
     for name in ordered:
         record = _latest(records, "joint-identity", lambda r, n=name: _request(r).get("motor") == n)
@@ -336,14 +392,14 @@ def build_report(
                      _fmt(rr.get("runner_up_span")),
                      "通过" if rr.get("ok") else ("失败" if record else "无记录")])
     blocks += [
-        ("h2", "4 S3 关节身份与活动性"),
+        ("h2", "5 S4 关节身份与活动性"),
         ("table", (["被测关节", "跨度（计数）", "跨度最大的电机", "次大跨度", "判定"], rows)),
         ("p", f"判据：跨度最大的电机就是被测关节，且 ≥ 次大 × {crit.IDENTITY_DOMINANCE_RATIO:g}；"
               f"被测跨度 ≥ {crit.IDENTITY_MIN_SPAN_COUNTS} 计数。"),
     ]
 
-    # S4
-    blocks.append(("h2", "5 S4 官方校准与一致性核对"))
+    # S5
+    blocks.append(("h2", "6 S5 官方校准与一致性核对"))
     saved = _latest(records, "calibration/finished", lambda r: _result(r).get("phase") == "saved")
     calibration = context.get("calibration") or (_result(saved).get("calibration") if saved else None)
     if isinstance(calibration, dict):
@@ -359,8 +415,8 @@ def build_report(
         blocks.append(("p", f"校准保存时间 {saved.get('recorded_at')}；命令 "
                             f"`{' '.join(_result(saved).get('command', []))}`。"))
 
-    # S5
-    blocks.append(("h2", "6 S5 官方驱动读数验证"))
+    # S6
+    blocks.append(("h2", "7 S6 官方驱动读数验证"))
     rows = []
     for record in records:
         if record.get("action") != "official-readout" or _error(record):
@@ -375,24 +431,7 @@ def build_report(
         blocks += [("p", "交付给客户的遥操作命令（官方 README 的命令缺 --robot.* 与 --teleop.side，照抄跑不起来）："),
                    ("code", _result(last_readout)["delivery_command"])]
 
-    blocks += [("h2", "7 S7 / S8"), ("p", "S7 与 follower 遥操作配对、S8 增强复测：未执行，不得解释为通过。")]
-
-    # 返修：单电机写 ID（不进放行门，有记录才列）
-    rows = []
-    for record in records:
-        if record.get("action") not in ("init-id", "feedback-test") or _precondition(record):
-            continue
-        rr = _result(record)
-        detail = _error(record) or (
-            f"ID {_fmt((rr.get('detected') or {}).get('id'))} → {_fmt(rr.get('target_id'))}"
-            if record.get("action") == "init-id" else f"跨度 {_fmt(rr.get('span'))}"
-        )
-        rows.append([record.get("recorded_at", ""), record.get("action", ""),
-                     _request(record).get("motor", ""), detail])
-    if rows:
-        blocks += [("h2", "8 返修记录：单电机写 ID"),
-                   ("p", "返修工具的操作，不计入放行判定。"),
-                   ("table", (["时间", "操作", "电机", "结果"], rows))]
+    blocks += [("h2", "8 S8 / S9"), ("p", "S8 与 follower 遥操作配对、S9 增强复测：未执行，不得解释为通过。")]
 
     # 判据表
     blocks += [
@@ -408,7 +447,7 @@ def build_report(
                ("table", (["时间", "操作", "说明"], rows)) if rows else ("p", "无。")]
     blocks += [
         ("h2", "11 未验证项与边界"),
-        ("p", "未覆盖：与 follower 的遥操作配对（S7）、增强复测（S8）、负载、耐久、重复精度、夹持力。"
+        ("p", "未覆盖：与 follower 的遥操作配对（S8）、增强复测（S9）、负载、耐久、重复精度、夹持力。"
               "待定标项（判据表中“否（记录）”）只记录不判定。"),
         ("h2", "12 签核"),
         ("table", (["角色", "姓名", "签字", "日期"],

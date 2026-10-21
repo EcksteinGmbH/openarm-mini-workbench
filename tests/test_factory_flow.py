@@ -71,7 +71,7 @@ class ArmScanCriteriaTest(unittest.TestCase):
         rows = self.good()
         rows[0]["voltage_v"] = 7.0
         result = crit.evaluate_arm_scan(rows, 7.5)
-        spread = next(c for c in result["checks"] if c["id"] == "S2.voltage_spread")
+        spread = next(c for c in result["checks"] if c["id"] == "S3.voltage_spread")
         self.assertFalse(spread["ok"])
         self.assertFalse(spread["judged"])
         self.assertTrue(result["judged_ok"])
@@ -79,10 +79,10 @@ class ArmScanCriteriaTest(unittest.TestCase):
 
 class ProtectionLimitTest(unittest.TestCase):
     def test_limit_below_the_7v5_supply_is_flagged_but_not_judged(self) -> None:
-        # 规格书过压阈值 7.4V，BOM 电源 7.5V：真机限值待读。只记录，真越限时状态位会让 S2.status 失败。
+        # 规格书过压阈值 7.4V，BOM 电源 7.5V：真机限值待读。只记录，真越限时状态位会让 S3.status 失败。
         rows = [snapshot(name, max_voltage_limit_v=7.4, max_temperature_limit_c=70) for name in MOTORS]
         result = crit.evaluate_arm_scan(rows, 7.5)
-        limits = next(c for c in result["checks"] if c["id"] == "S2.protection_limits")
+        limits = next(c for c in result["checks"] if c["id"] == "S3.protection_limits")
         self.assertFalse(limits["ok"])
         self.assertFalse(limits["judged"])
         self.assertEqual(limits["value"]["max_voltage_limit_v"], [7.4])
@@ -180,6 +180,10 @@ class CriteriaTableTest(unittest.TestCase):
                     self.assertFalse(criterion["judged"])
 
 
+def _req(record):
+    return record["data"].get("request", {})
+
+
 def rec(at: str, action: str, request=None, result=None, error=None):
     data = {"request": request or {}}
     if error is not None:
@@ -193,6 +197,14 @@ def full_pass_records():
     records = []
     t = iter(f"2026-10-21T10:{m:02d}:{s:02d}+08:00" for m in range(60) for s in range(0, 60, 5))
     records.append(rec(next(t), "checklist", {"stage": "S1"}, {"ok": True, "operator": "A"}))
+    for name in main.MINI_SETUP_ORDER:
+        motor_id = MOTORS[name]["id"]
+        records.append(rec(next(t), "scan-current", {}, {"detected": {"id": 1}}))
+        records.append(rec(next(t), "init-id", {"motor": name, "hardware_profile": "mini_field_7v5"},
+                           {"verified": True, "target_id": motor_id}))
+        records.append(rec(next(t), "scan-current", {"initial_id": motor_id, "initial_baudrate": 1_000_000},
+                           {"detected": {"id": motor_id}}))
+        records.append(rec(next(t), "feedback-test", {"motor": name}, {"ok": True, "span": 900}))
     records.append(rec(next(t), "scan-all", {}, {"judged": True, "overall_ok": True,
                                                  "hardware_profile": "mini_field_7v5", "passed": 8, "total": 8}))
     records.append(rec(next(t), "comm-stability", {}, {"ok": True, "rounds": 900, "failures": 0}))
@@ -218,7 +230,7 @@ class ReleaseGateTest(unittest.TestCase):
         records = [r for r in full_pass_records() if r["action"] != "comm-stability"]
         result = gate.evaluate(records, MOTORS)
         self.assertEqual(result["verdict"], "HOLD")
-        self.assertEqual(result["stages"]["S2"], "MISSING")
+        self.assertEqual(result["stages"]["S3"], "MISSING")
 
     def test_latest_failure_fails(self) -> None:
         records = full_pass_records()
@@ -238,8 +250,8 @@ class ReleaseGateTest(unittest.TestCase):
         records.append(rec("2026-10-21T23:00:00+08:00", "calibration/finished", {}, {"phase": "saved"}))
         result = gate.evaluate(records, MOTORS)
         self.assertEqual(result["verdict"], "HOLD")
-        self.assertEqual(result["stages"]["S4"], "MISSING")
         self.assertEqual(result["stages"]["S5"], "MISSING")
+        self.assertEqual(result["stages"]["S6"], "MISSING")
 
     def test_unsaved_calibration_fails(self) -> None:
         records = full_pass_records()
@@ -250,27 +262,49 @@ class ReleaseGateTest(unittest.TestCase):
         records = full_pass_records()
         records.append(rec("2026-10-21T23:00:00+08:00", "scan-all", {},
                            {"judged": True, "overall_ok": True, "hardware_profile": ""}))
-        self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S2"], "FAIL")
+        self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S3"], "FAIL")
 
     def test_old_format_scan_is_ignored(self) -> None:
-        # 2026-09-29 的扫描记录没有判定字段，不能当 S3 证据。
+        # 2026-09-29 的扫描记录没有判定字段，不能当 S4 证据。
         records = [r for r in full_pass_records() if r["action"] != "scan-all"]
         records.append(rec("2026-10-21T23:00:00+08:00", "scan-all", {}, {"overall_ok": True}))
+        self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S3"], "MISSING")
+
+    def test_ids_are_part_of_the_flow(self) -> None:
+        # 装配后逐颗写 ID 是必做阶段：少一颗就不能放行。
+        records = [r for r in full_pass_records()
+                   if not (r["action"] == "init-id" and _req(r).get("motor") == "joint_3")]
+        result = gate.evaluate(records, MOTORS)
+        self.assertEqual(result["verdict"], "HOLD")
+        self.assertEqual(result["stages"]["S2"], "MISSING")
+
+    def test_rescan_and_joint_check_must_follow_the_write(self) -> None:
+        # 重写了 ID，之前的复扫和动关节确认就不算了。
+        records = full_pass_records()
+        records.append(rec("2026-10-21T23:00:00+08:00", "init-id",
+                           {"motor": "gripper", "hardware_profile": "mini_field_7v5"}, {"verified": True}))
+        result = gate.evaluate(records, MOTORS)
+        status = {i["key"]: i["status"] for i in result["items"]}
+        self.assertEqual(status["S2.gripper.rescan"], "MISSING")
+        self.assertEqual(status["S2.gripper.joint"], "MISSING")
+
+    def test_pre_assembly_writes_on_the_5v_bench_do_not_count(self) -> None:
+        # 2026-09-29 那批是装配前在 5V 台架上写的；新流程要求装配后按关节重写。
+        records = [r for r in full_pass_records() if r["action"] != "init-id"]
+        for name in main.MINI_SETUP_ORDER:
+            records.insert(1, rec("2026-10-21T09:00:00+08:00", "init-id",
+                                  {"motor": name, "hardware_profile": "mini_bench_5v"}, {"verified": True}))
         self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S2"], "MISSING")
 
-    def test_rework_id_writes_do_not_gate(self) -> None:
-        # 测试站只测装配好的整臂；单电机写 ID 是返修工具，失败也不进放行门。
+    def test_joint_check_that_saw_no_motion_fails(self) -> None:
         records = full_pass_records()
-        records.append(rec("2026-10-21T23:00:00+08:00", "init-id", {"motor": "gripper"}, error="no motor"))
-        records.append(rec("2026-10-21T23:00:05+08:00", "feedback-test", {"motor": "gripper"}, {"ok": False}))
-        result = gate.evaluate(records, MOTORS)
-        self.assertEqual(result["verdict"], "PASS")
-        self.assertFalse(any(i["key"].startswith("S1.gripper") for i in result["items"]))
+        records.append(rec("2026-10-21T23:00:00+08:00", "feedback-test", {"motor": "joint_5"}, {"ok": False, "span": 4}))
+        self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S2"], "FAIL")
 
     def test_release_stage_follows_the_verdict(self) -> None:
-        self.assertEqual(gate.evaluate(full_pass_records(), MOTORS)["stages"]["S6"], "PASS")
+        self.assertEqual(gate.evaluate(full_pass_records(), MOTORS)["stages"]["S7"], "PASS")
         records = [r for r in full_pass_records() if r["action"] != "comm-stability"]
-        self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S6"], "MISSING")
+        self.assertEqual(gate.evaluate(records, MOTORS)["stages"]["S7"], "MISSING")
 
 
 class ChecklistTest(unittest.TestCase):

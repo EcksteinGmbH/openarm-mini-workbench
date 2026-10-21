@@ -540,9 +540,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "de": "Der Arm ist vollständig montiert und hängt frei an einer senkrechten Säule (wie auf dem offiziellen Foto)",
     },
     "checklist_S1_daisy_chain": {
-        "zh": "Waveshare 板按 1→8 菊花链接好，USB 已连到本机",
-        "en": "Waveshare board wired as daisy chain 1→8, USB connected to this computer",
-        "de": "Waveshare-Platine als Daisy-Chain 1→8 verkabelt, USB mit diesem Rechner verbunden",
+        "zh": "Waveshare 驱动板已接 7.5V 电源，USB 已连到本机",
+        "en": "Waveshare driver board connected to the 7.5 V supply and by USB to this computer",
+        "de": "Waveshare-Treiberplatine an der 7,5-V-Versorgung und per USB an diesem Rechner",
     },
     "checklist_S1_waveshare_jumper": {
         "zh": "Waveshare 驱动板跳线在 B 档",
@@ -634,124 +634,154 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Preparation checklist fully confirmed, operator recorded",
         "de": "Vorbereitungs-Checkliste vollständig bestätigt, Bediener erfasst",
     },
-    "crit_S2_present": {
+    "crit_S3_present": {
         "zh": "ID 1–8 全部应答，型号 777",
         "en": "IDs 1–8 all answer, model 777",
         "de": "IDs 1–8 antworten alle, Modell 777",
     },
-    "crit_S2_firmware_same": {
+    "crit_S3_firmware_same": {
         "zh": "8 颗固件版本一致（LeRobot 连接时校验）",
         "en": "Same firmware on all 8 (checked by LeRobot on connect)",
         "de": "Gleiche Firmware auf allen 8 (von LeRobot beim Verbinden geprüft)",
     },
-    "crit_S2_voltage": {
+    "crit_S3_voltage": {
         "zh": "每颗电压与 7.5V 偏差 ≤ 阈值",
         "en": "Each voltage within the tolerance of 7.5 V",
         "de": "Jede Spannung innerhalb der Toleranz von 7,5 V",
     },
-    "crit_S2_temperature": {
+    "crit_S3_temperature": {
         "zh": "静止、未上扭矩时温度 ≤ 阈值",
         "en": "Temperature at rest, torque off ≤ threshold",
         "de": "Temperatur im Ruhezustand ohne Drehmoment ≤ Schwelle",
     },
-    "crit_S2_status": {
+    "crit_S3_status": {
         "zh": "状态寄存器为 0（无告警位）",
         "en": "Status register is 0 (no alarm bits)",
         "de": "Statusregister ist 0 (keine Alarmbits)",
     },
-    "crit_S2_torque_off": {
+    "crit_S3_torque_off": {
         "zh": "扭矩关闭",
         "en": "Torque disabled",
         "de": "Drehmoment deaktiviert",
     },
-    "crit_S2_voltage_spread": {
+    "crit_S3_voltage_spread": {
         "zh": "8 颗电压极差（待定标）",
         "en": "Voltage spread across the 8 (to be calibrated)",
         "de": "Spannungsstreuung über die 8 (noch zu kalibrieren)",
     },
-    "crit_S2_comm": {
+    "crit_S3_comm": {
         "zh": "连续读取 8 颗位置，0 失败",
         "en": "Continuous reads of all 8 positions, 0 failures",
         "de": "Fortlaufendes Lesen aller 8 Positionen, 0 Fehler",
     },
-    "crit_S3_identity": {
+    "crit_S4_identity": {
         "zh": "只动一个关节时它的跨度最大，且 ≥ 次大 × 阈值",
         "en": "When one joint is moved its travel is largest and ≥ runner-up × threshold",
         "de": "Bei Bewegung eines Gelenks ist sein Weg am größten und ≥ zweitgrößter × Schwelle",
     },
-    "crit_S3_span": {
+    "crit_S4_span": {
         "zh": "被测关节跨度 ≥ 阈值",
         "en": "Tested joint travel ≥ threshold",
         "de": "Weg des geprüften Gelenks ≥ Schwelle",
     },
-    "crit_S4_precheck": {
+    "crit_S5_precheck": {
         "zh": "预检：读数单圈内，预算偏移 |·| ≤ 2047",
         "en": "Precheck: single-turn readings, predicted offset |·| ≤ 2047",
         "de": "Vorprüfung: Werte innerhalb einer Umdrehung, erwarteter Offset |·| ≤ 2047",
     },
-    "crit_S4_saved": {
+    "crit_S5_saved": {
         "zh": "官方校准输出保存标记",
         "en": "Official calibration printed the save marker",
         "de": "Offizielle Kalibrierung hat die Speichermarke ausgegeben",
     },
-    "crit_S4_consistent": {
+    "crit_S5_consistent": {
         "zh": "校准文件与 EEPROM 8/8 一致，Phase=12",
         "en": "Calibration file and EEPROM consistent 8/8, Phase=12",
         "de": "Kalibrierdatei und EEPROM 8/8 konsistent, Phase=12",
     },
-    "crit_S4_consistent_power_cycled": {
+    "crit_S5_consistent_power_cycled": {
         "zh": "断电 ≥5 s 后再次 8/8 一致",
         "en": "Consistent 8/8 again after ≥5 s power off",
         "de": "Nach ≥5 s stromlos erneut 8/8 konsistent",
     },
-    "crit_S4_gripper_range": {
+    "crit_S5_gripper_range": {
         "zh": "夹爪校准量程（待定标）",
         "en": "Gripper calibration range (to be calibrated)",
         "de": "Greifer-Kalibrierbereich (noch zu kalibrieren)",
     },
-    "crit_S5_calibrated": {
+    "crit_S6_calibrated": {
         "zh": "官方驱动认定已校准（is_calibrated）",
         "en": "Official driver reports calibrated (is_calibrated)",
         "de": "Offizieller Treiber meldet kalibriert (is_calibrated)",
     },
-    "crit_S5_zero_pose": {
+    "crit_S6_zero_pose": {
         "zh": "零位时 J1–J7 读数 |·| ≤ 阈值",
         "en": "At zero pose J1–J7 readings |·| ≤ threshold",
         "de": "In Nullstellung J1–J7 Werte |·| ≤ Schwelle",
     },
-    "crit_S5_gripper_closed": {
+    "crit_S6_gripper_closed": {
         "zh": "夹爪闭合读数 ≥ 阈值（接近 0°）",
         "en": "Gripper closed reading ≥ threshold (near 0°)",
         "de": "Greifer geschlossen ≥ Schwelle (nahe 0°)",
     },
-    "crit_S5_gripper_open": {
+    "crit_S6_gripper_open": {
         "zh": "夹爪张开读数 ≤ 阈值（接近 −65°）",
         "en": "Gripper open reading ≤ threshold (near −65°)",
         "de": "Greifer offen ≤ Schwelle (nahe −65°)",
     },
-    "crit_S5_remap": {
+    "crit_S6_remap": {
         "zh": "扫动 J6/J7 时变化最大的是对调后的键",
         "en": "Sweeping J6/J7 changes the swapped key most",
         "de": "Beim Schwenken von J6/J7 ändert sich der getauschte Schlüssel am stärksten",
     },
-    "crit_S5_direction": {
+    "crit_S6_direction": {
         "zh": "读数方向（待定标，需方向表）",
         "en": "Reading direction (to be calibrated, needs a direction table)",
         "de": "Ableserichtung (noch zu kalibrieren, Richtungstabelle nötig)",
     },
-    "crit_S2_protection_limits": {
+    "crit_S3_protection_limits": {
         "zh": "过压 / 过温保护限值（记录；过压限值应 ≥ 7.5V）",
         "en": "Over-voltage / over-temperature protection limits (recorded; over-voltage limit should be ≥ 7.5 V)",
         "de": "Überspannungs- / Übertemperaturgrenzen (erfasst; Überspannungsgrenze sollte ≥ 7,5 V sein)",
     },
-    "crit_R_feedback_moved": {
-        "zh": "只读反馈跨度 ≥ 阈值（证明能动、读数连续）",
-        "en": "Read-only feedback travel ≥ threshold (moves, readings continuous)",
-        "de": "Nur-Lese-Rückmeldeweg ≥ Schwelle (bewegt sich, Werte stetig)",
+    "gate_write": {
+        "zh": "{title} 写 ID",
+        "en": "{title} write ID",
+        "de": "{title} ID schreiben",
     },
-    "crit_R_feedback_span": {
-        "zh": "反馈跨度建议值（待定标）",
-        "en": "Suggested feedback travel (to be calibrated)",
-        "de": "Empfohlener Rückmeldeweg (noch zu kalibrieren)",
+    "gate_rescan": {
+        "zh": "{title} 断电复扫",
+        "en": "{title} rescan after power cycle",
+        "de": "{title} Neuscan nach Aus/Ein",
+    },
+    "gate_joint_confirm": {
+        "zh": "{title} 动关节确认",
+        "en": "{title} confirmed by moving the joint",
+        "de": "{title} durch Gelenkbewegung bestätigt",
+    },
+    "crit_S2_single_on_bus": {
+        "zh": "广播 ping 只有一个应答，型号 777",
+        "en": "Broadcast ping answered by exactly one motor, model 777",
+        "de": "Broadcast-Ping von genau einem Motor beantwortet, Modell 777",
+    },
+    "crit_S2_voltage": {
+        "zh": "实测电压与 7.5V 偏差 ≤ 阈值，且不超过额定 + 阈值",
+        "en": "Measured voltage within the tolerance of 7.5 V and below rated + tolerance",
+        "de": "Gemessene Spannung innerhalb der Toleranz von 7,5 V und unter Nennwert + Toleranz",
+    },
+    "crit_S2_persisted": {
+        "zh": "断电 ≥5 s 后以新 ID、1 Mbps 复扫到",
+        "en": "Found again at the new ID and 1 Mbps after ≥5 s power off",
+        "de": "Nach ≥5 s stromlos unter neuer ID und 1 Mbit/s wiedergefunden",
+    },
+    "crit_S2_joint_confirmed": {
+        "zh": "只动这个关节时读数跨度 ≥ 阈值（ID 在这个关节的电机上）",
+        "en": "Moving only this joint changes the reading by ≥ threshold (the ID sits on this joint's motor)",
+        "de": "Nur dieses Gelenk bewegt: Wertänderung ≥ Schwelle (die ID liegt am Motor dieses Gelenks)",
+    },
+    "crit_S2_joint_span": {
+        "zh": "确认时关节摆动幅度建议值（待定标）",
+        "en": "Suggested joint travel during confirmation (to be calibrated)",
+        "de": "Empfohlener Gelenkweg bei der Bestätigung (noch zu kalibrieren)",
     },
 }
