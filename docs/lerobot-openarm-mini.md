@@ -110,6 +110,64 @@ predicted_homing = actual − 2047
 （偏移 2048）。`tests/test_workstation.py` 里对整圈 4096 个位置穷举，确认被拦下的
 只有 4095 这一个。
 
+## 校准到底校准什么、往电机里写了什么
+
+核对对象：本机 `.venv-lerobot`（lerobot 0.6.2 @ `eb7a54c`，与 PyPI 0.6.1 行为一致），2026-10-21。
+
+### 校准的是什么
+
+只有两件事是「测」出来的：
+
+1. **零位**：整臂自然下垂、夹爪闭合时，读 8 颗电机的当前位置，算出各自的 `Homing_Offset`，
+   让这个姿态以后读出来正好是 2047（半圈，中点）。驱动把 2047 换算成 0°，所以零位就是
+   leader 与 follower 对齐的参考姿态。
+2. **夹爪行程**：分别读夹爪完全闭合、完全张开时的位置，作为夹爪的量程。驱动据此把夹爪换算成
+   0–100，再乘 −0.65 变成 follower 的 0° 到 −65°。
+
+J1–J7 的量程**不测**，驱动直接写整圈 0..4095。
+
+**不属于校准、也不写进电机的**：左右侧方向翻转（运行时由 `--teleop.side` 决定）、J6/J7 对调、
+夹爪 −0.65 系数——都在驱动代码里，每次遥操作时现算。
+
+### `lerobot-calibrate` 对每颗电机的全部写入（按执行顺序）
+
+`scripts/lerobot_calibrate.py:104-109`：`connect(calibrate=False)` → `calibrate()` → `disconnect()`。
+
+| 顺序 | 时机 | 写什么（地址） | 值 | 断电后 | 出处 |
+|---|---|---|---|---|---|
+| 1 | 连接时 `configure()` | `Torque_Enable`(40)、`Lock`(55) | 0、0（关扭矩、解锁 EEPROM） | 不保持 | `feetech.py:291-294` |
+| 2 | 连接时 | `Return_Delay_Time`(7) | 0（出厂 250） | 保持 | `feetech.py:213` |
+| 3 | 连接时 | `Maximum_Acceleration`(85) | 254（实测出厂 250） | 保持 | `feetech.py:216` |
+| 4 | 连接时 | `Acceleration`(41) | 254 | **不保持**（断电读到 0） | `feetech.py:217` |
+| 5 | 连接时 | `Phase`(18) | 若 bit4 置位则清掉（出厂实测 92 → 76） | 保持 | `feetech.py:222-225` |
+| 6 | 连接时 | `Operating_Mode`(33) | 0（位置模式） | 保持 | `openarm_mini.py:200-204` |
+| 7 | 校准开始 | `Torque_Enable`、`Lock` | 0、0 | 不保持 | `openarm_mini.py:130` |
+| 8 | 校准开始 | `Phase`(18) | **12** | 保持 | `openarm_mini.py:132-134` |
+| 9 | 校准开始 | `Operating_Mode`(33) | 0 | 保持 | `openarm_mini.py:136-137` |
+| 10 | 零位确认后，先复位 | `Homing_Offset`(31) / `Min_Position_Limit`(9) / `Max_Position_Limit`(11) | 0 / 0 / 4095 | 保持 | `motors_bus.py:754-773` |
+| 11 | 零位确认后 | `Homing_Offset`(31) | **零位读数 − 2047** | 保持 | `motors_bus.py:775-798` |
+| 12 | 夹爪两次确认后 | 每颗 `Homing_Offset` / `Min_Position_Limit` / `Max_Position_Limit` | J1–J7：偏移 / 0 / 4095；夹爪：偏移 / 闭合与张开读数中的小值 / 大值 | 保持 | `feetech.py:268-276` |
+| 13 | 结束 `disconnect()` | `Torque_Enable`、`Lock` | 0、0 | 不保持 | `motors_bus.py:547-559` `disconnect(disable_torque=True)` |
+
+「保持」= 校准写在 EEPROM 区，断电后不丢；工作站 S5 的「断电后再核对」就是验证这一点。
+
+**不写**：ID、波特率（那是 S2 写 ID 的事）；扭矩一直关着，不下发目标位置。
+
+### 写到电脑上的校准文件
+
+`<校准根>/teleoperators/openarm_mini/<编号>.json`，每颗电机一条：
+`id`、`drive_mode`、`homing_offset`、`range_min`、`range_max`。
+
+- `homing_offset` / `range_min` / `range_max` 三项与电机 EEPROM 一一对应，工作站一致性核对就比这三项。
+- `drive_mode` **只在文件里**，不写进电机：J1–J7 为 0；夹爪闭合读数小于张开读数时为 0，否则为 1。
+- 遥操作时驱动读这份文件做换算，并检查它和电机里的三项是否一致（`is_calibrated`）。
+  所以**文件和电机必须配对交付**：换电脑要连同文件一起拷，重新校准会同时改两边。
+
+### 已有校准文件时
+
+开头会多问一句（沿用 / 重新校准）。沿用（裸回车）= 把文件里的三项写回电机就结束，第 7–12 步都不做，
+什么也没测。工作站在这里固定回答 `c`（重新校准），见「沿用旧校准文件的陷阱」。
+
 ## `Phase` 寄存器
 
 - 地址 18，1 字节（`motors/feetech/tables.py`）
