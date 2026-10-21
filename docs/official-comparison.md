@@ -145,6 +145,10 @@ ping**，返回所有应答的 ID，再读它们的型号号。最坏 8 个广�
 官方流程最后一步是 `lerobot-teleoperate`，需要一条 follower 臂。本工作站到第 5 步导出为止，
 没有遥操作验证环节。
 
+补充（2026-10-21 核对）：README 里的这条命令**本身就跑不起来**。`TeleoperateConfig.robot` 是必填字段，
+而硬件仓库提交 8d150667（2026-03-26）把原来的 `--robot.type=so101_follower …` 删掉后没有换成 Open Arms follower。
+可用写法需要补 `--robot.type=openarm_follower --robot.port=<can> --robot.side=…` 和 `--teleop.side=…`。
+
 ### B3 · `--teleop.side` 官方 README 没提，交付时会出问题
 
 驱动的方向翻转表只在 `side` 非空时生效：

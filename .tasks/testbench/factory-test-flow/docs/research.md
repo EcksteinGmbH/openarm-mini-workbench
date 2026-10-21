@@ -22,7 +22,12 @@
 - **README 第 7 步照抄跑不起来**：`TeleoperateConfig.robot` 为必填（本机 eb7a54c `scripts/lerobot_teleoperate.py:138` 核实），
   README 命令没有 `--robot.*`，也没有 `--teleop.side`。
 - `lerobot-find-joint-limits` 记录的是 follower 范围，需要 robot+teleop+URDF，不是 leader 验收工具。
-- 硬件仓库自 2026-03-26（0628e081）无提交，与 `docs/hardware-reference.md` 一致。
+- 硬件仓库自 2026-03-26（0628e081）无提交，与 `docs/hardware-reference.md` 一致。仓库内容只有 README、BOM、`STEP/`、`STL/`、两张照片。
+- 第 7 步命令的来历：提交 8d150667（2026-03-26）之前是 `--robot.type=so101_follower --robot.port=… --robot.id=…`
+  （6 电机的 SO-101 follower，与 7 轴 Mini 不匹配），该提交删掉了 `--robot.*` 而没有换成 Open Arms follower，命令从此不可用。
+  README 正文写明配对对象是 **Open Arms follower**（LeRobot `openarm_follower`，达妙 CAN）。
+- 照片 `images/openarm-mini1.jpg`：一对 Mini（白、黑）挂在**竖直铝型材立柱**上，Waveshare 板在顶部，整臂自然下垂——
+  这就是校准零位「整臂下垂」的官方摆放方式。`openarm-mini2.jpg`：腕带佩戴方式。
 
 ### LeRobot 版本（本机核对 PyPI wheel）
 

@@ -47,6 +47,7 @@
 | Waveshare 跳线 | 在 B 档（人工确认） | 官方（SO-101 排障说明） |
 | 来料 | 8× STS3215-C046（7.4 V），打印件 16 件，夹爪件 L/R 与编号侧一致（人工勾选） | 官方（BOM） |
 | 电源设定 | 与所选档位一致（人工确认 + S1/S3 实测复核） | 官方（BOM 7.5 V ≥2 A） |
+| **台架夹具** | 整臂可固定在竖直立柱上自由下垂（同官方照片 `images/openarm-mini1.jpg`），S3–S6 均在此姿态下做 | 官方（零位定义为整臂下垂；照片中的安装方式） |
 
 ### S1 电机预配置 ×8（装配前，顺序 8 → 1，总线只接一颗）
 
@@ -63,7 +64,7 @@
 
 ### S2 装配与装配检查（人工勾选，逐项入日志）
 
-按官方 10 步装配。检查表：M2/M3 螺丝齐全拧紧、8 个舵盘与舵盘螺丝、菊花链 1→8 线序、
+按官方 10 步装配。检查表（腕带佩戴参照官方照片 `images/openarm-mini2.jpg`）：M2/M3 螺丝齐全拧紧、8 个舵盘与舵盘螺丝、菊花链 1→8 线序、
 全行程摆动时线缆不受拉扯不被夹、夹爪扳机回位、腕带装好可调、Waveshare 板固定。
 任一项未勾选 → 不能进入 S3。
 
@@ -104,7 +105,8 @@
 
 ### S6 官方驱动读数验证（leader 侧，新增）
 
-官方第 7 步 `lerobot-teleoperate` **必须**带 `--robot.*`（`TeleoperateConfig.robot` 必填），没有 follower 跑不了。
+官方第 7 步 `lerobot-teleoperate` **必须**带 `--robot.*`（`TeleoperateConfig.robot` 必填），没有 follower 跑不了；
+README 里的命令是 8d150667 删掉 `so101_follower` 后留下的残缺版本。
 这里用同一个官方驱动只做 leader 半边：在 LeRobot 环境里以 `OpenArmMini(side=<L/R>)` `connect(calibrate=False)`，
 循环 `get_action()`。`configure()` 先关扭矩，只写官方运行期配置，与客户遥操作时完全相同。
 
