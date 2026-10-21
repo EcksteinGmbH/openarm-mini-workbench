@@ -69,8 +69,9 @@ class SupplyVoltageTest(unittest.TestCase):
     def test_unknown_profile_is_not_a_check(self) -> None:
         self.assertFalse(main.check_supply_voltage("", 5.0)["checked"])
 
-    def test_bench_profile_accepts_its_own_supply(self) -> None:
-        self.assertTrue(main.check_supply_voltage("mini_bench_5v", 5.1)["checked"])
+    def test_only_the_official_7v5_profile_exists(self) -> None:
+        # 测试站只测装配好的整臂，电源按官方 BOM 一律 7.5V。
+        self.assertEqual(list(main.MINI_HARDWARE_PROFILES), ["mini_field_7v5"])
 
     def test_field_profile_accepts_official_7v5(self) -> None:
         # BOM 给的是 7.5V 电源，电机额定 7.4V——这一档必须放行。
@@ -80,9 +81,10 @@ class SupplyVoltageTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             main.check_supply_voltage("mini_field_7v5", 12.0)
 
-    def test_wrong_profile_for_the_measured_supply_is_refused(self) -> None:
+    def test_a_5v_adapter_on_the_7v5_profile_is_refused(self) -> None:
+        # 接错成 5V 适配器时，电机在低压下读数不可信，不能放行。
         with self.assertRaises(RuntimeError):
-            main.check_supply_voltage("mini_bench_5v", 7.5)
+            main.check_supply_voltage("mini_field_7v5", 5.0)
 
 
 class SerialRuleTest(unittest.TestCase):

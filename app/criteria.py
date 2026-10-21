@@ -14,26 +14,32 @@ from __future__ import annotations
 
 from typing import Any
 
-CRITERIA_VERSION = "2026-10-21.1"
+CRITERIA_VERSION = "2026-10-21.2"
 
 ENCODER_RESOLUTION = 4096
 
-# ---------- S1 单电机 ----------
+# 测试站只做装配完成后的软件测试，电源按官方 BOM 一律 7.5V。
+# 阶段：S1 准备 → S2 整臂电气与通信 → S3 关节身份 → S4 官方校准 → S5 官方驱动读数 → S6 放行归档；
+# S7 follower 配对、S8 增强复测为可选；R 是返修工具（单电机写 ID），不进放行门。
+
+# ---------- 供电 ----------
 SUPPLY_VOLTAGE_TOLERANCE_V = 1.0
+
+# ---------- R 返修：单电机只读反馈 ----------
 FEEDBACK_MOVEMENT_COUNTS = 100
-# 建议值，待首批定标：手转舵盘至少 90°。
+# 建议值，待定标：手转舵盘至少 90°。
 FEEDBACK_SPAN_SUGGESTED_COUNTS = 1024
 
-# ---------- S3 整臂 ----------
+# ---------- S2 整臂 ----------
 IDLE_TEMPERATURE_MAX_C = 40
 VOLTAGE_SPREAD_SUGGESTED_V = 0.3
 COMM_STABILITY_SECONDS = 60.0
 
-# ---------- S4 关节身份 ----------
+# ---------- S3 关节身份 ----------
 IDENTITY_MIN_SPAN_COUNTS = 100
 IDENTITY_DOMINANCE_RATIO = 3.0
 
-# ---------- S6 官方驱动读数 ----------
+# ---------- S5 官方驱动读数 ----------
 ZERO_POSE_TOLERANCE_DEG = 15.0
 GRIPPER_CLOSED_MIN_DEG = -10.0
 GRIPPER_OPEN_MAX_DEG = -50.0
@@ -41,36 +47,32 @@ READOUT_SWEEP_MIN_DEG = 10.0
 
 # 判据表。title 是 messages.py 里的文案键（crit_<id 去点>），报告与页面共用。
 CRITERIA: tuple[dict[str, Any], ...] = (
-    {"id": "S0.checklist", "stage": "S0", "judged": True, "basis": "official", "limit": "all"},
-    {"id": "S1.single_on_bus", "stage": "S1", "judged": True, "basis": "official", "limit": 1},
-    {"id": "S1.voltage", "stage": "S1", "judged": True, "basis": "derived", "limit": SUPPLY_VOLTAGE_TOLERANCE_V, "unit": "V"},
-    {"id": "S1.persisted", "stage": "S1", "judged": True, "basis": "derived", "limit": "rescan"},
-    {"id": "S1.feedback_moved", "stage": "S1", "judged": True, "basis": "derived", "limit": FEEDBACK_MOVEMENT_COUNTS, "unit": "counts"},
-    {"id": "S1.feedback_span", "stage": "S1", "judged": False, "basis": "tbc", "limit": FEEDBACK_SPAN_SUGGESTED_COUNTS, "unit": "counts"},
-    {"id": "S1.baseline", "stage": "S1", "judged": False, "basis": "tbc", "limit": "record"},
-    {"id": "S2.checklist", "stage": "S2", "judged": True, "basis": "official", "limit": "all"},
-    {"id": "S3.present", "stage": "S3", "judged": True, "basis": "official", "limit": 8},
-    {"id": "S3.firmware_same", "stage": "S3", "judged": True, "basis": "official", "limit": "same"},
-    {"id": "S3.voltage", "stage": "S3", "judged": True, "basis": "derived", "limit": SUPPLY_VOLTAGE_TOLERANCE_V, "unit": "V"},
-    {"id": "S3.temperature", "stage": "S3", "judged": True, "basis": "derived", "limit": IDLE_TEMPERATURE_MAX_C, "unit": "°C"},
-    {"id": "S3.status", "stage": "S3", "judged": True, "basis": "derived", "limit": 0},
-    {"id": "S3.torque_off", "stage": "S3", "judged": True, "basis": "derived", "limit": 0},
-    {"id": "S3.voltage_spread", "stage": "S3", "judged": False, "basis": "tbc", "limit": VOLTAGE_SPREAD_SUGGESTED_V, "unit": "V"},
-    {"id": "S3.comm", "stage": "S3", "judged": True, "basis": "derived", "limit": COMM_STABILITY_SECONDS, "unit": "s"},
-    {"id": "S4.identity", "stage": "S4", "judged": True, "basis": "derived", "limit": IDENTITY_DOMINANCE_RATIO},
-    {"id": "S4.span", "stage": "S4", "judged": True, "basis": "derived", "limit": IDENTITY_MIN_SPAN_COUNTS, "unit": "counts"},
-    {"id": "S5.precheck", "stage": "S5", "judged": True, "basis": "official", "limit": 2047},
-    {"id": "S5.saved", "stage": "S5", "judged": True, "basis": "official", "limit": "saved"},
-    {"id": "S5.consistent", "stage": "S5", "judged": True, "basis": "official", "limit": 8},
-    {"id": "S5.consistent_power_cycled", "stage": "S5", "judged": True, "basis": "derived", "limit": 8},
-    {"id": "S5.gripper_range", "stage": "S5", "judged": False, "basis": "tbc", "limit": "record", "unit": "counts"},
-    {"id": "S6.calibrated", "stage": "S6", "judged": True, "basis": "official", "limit": "is_calibrated"},
-    {"id": "S6.zero_pose", "stage": "S6", "judged": True, "basis": "derived", "limit": ZERO_POSE_TOLERANCE_DEG, "unit": "°"},
-    {"id": "S6.gripper_closed", "stage": "S6", "judged": True, "basis": "official", "limit": GRIPPER_CLOSED_MIN_DEG, "unit": "°"},
-    {"id": "S6.gripper_open", "stage": "S6", "judged": True, "basis": "official", "limit": GRIPPER_OPEN_MAX_DEG, "unit": "°"},
-    {"id": "S6.remap", "stage": "S6", "judged": True, "basis": "official", "limit": "joint_6<->joint_7"},
-    {"id": "S6.direction", "stage": "S6", "judged": False, "basis": "tbc", "limit": "record"},
-    {"id": "S9.checklist", "stage": "S9", "judged": True, "basis": "derived", "limit": "all"},
+    {"id": "S1.checklist", "stage": "S1", "judged": True, "basis": "official", "limit": "all"},
+    {"id": "S2.present", "stage": "S2", "judged": True, "basis": "official", "limit": 8},
+    {"id": "S2.firmware_same", "stage": "S2", "judged": True, "basis": "official", "limit": "same"},
+    {"id": "S2.voltage", "stage": "S2", "judged": True, "basis": "derived", "limit": SUPPLY_VOLTAGE_TOLERANCE_V, "unit": "V"},
+    {"id": "S2.temperature", "stage": "S2", "judged": True, "basis": "derived", "limit": IDLE_TEMPERATURE_MAX_C, "unit": "°C"},
+    {"id": "S2.status", "stage": "S2", "judged": True, "basis": "derived", "limit": 0},
+    {"id": "S2.torque_off", "stage": "S2", "judged": True, "basis": "derived", "limit": 0},
+    {"id": "S2.voltage_spread", "stage": "S2", "judged": False, "basis": "tbc", "limit": VOLTAGE_SPREAD_SUGGESTED_V, "unit": "V"},
+    {"id": "S2.protection_limits", "stage": "S2", "judged": False, "basis": "tbc", "limit": "record"},
+    {"id": "S2.comm", "stage": "S2", "judged": True, "basis": "derived", "limit": COMM_STABILITY_SECONDS, "unit": "s"},
+    {"id": "S3.identity", "stage": "S3", "judged": True, "basis": "derived", "limit": IDENTITY_DOMINANCE_RATIO},
+    {"id": "S3.span", "stage": "S3", "judged": True, "basis": "derived", "limit": IDENTITY_MIN_SPAN_COUNTS, "unit": "counts"},
+    {"id": "S4.precheck", "stage": "S4", "judged": True, "basis": "official", "limit": 2047},
+    {"id": "S4.saved", "stage": "S4", "judged": True, "basis": "official", "limit": "saved"},
+    {"id": "S4.consistent", "stage": "S4", "judged": True, "basis": "official", "limit": 8},
+    {"id": "S4.consistent_power_cycled", "stage": "S4", "judged": True, "basis": "derived", "limit": 8},
+    {"id": "S4.gripper_range", "stage": "S4", "judged": False, "basis": "tbc", "limit": "record", "unit": "counts"},
+    {"id": "S5.calibrated", "stage": "S5", "judged": True, "basis": "official", "limit": "is_calibrated"},
+    {"id": "S5.zero_pose", "stage": "S5", "judged": True, "basis": "derived", "limit": ZERO_POSE_TOLERANCE_DEG, "unit": "°"},
+    {"id": "S5.gripper_closed", "stage": "S5", "judged": True, "basis": "official", "limit": GRIPPER_CLOSED_MIN_DEG, "unit": "°"},
+    {"id": "S5.gripper_open", "stage": "S5", "judged": True, "basis": "official", "limit": GRIPPER_OPEN_MAX_DEG, "unit": "°"},
+    {"id": "S5.remap", "stage": "S5", "judged": True, "basis": "official", "limit": "joint_6<->joint_7"},
+    {"id": "S5.direction", "stage": "S5", "judged": False, "basis": "tbc", "limit": "record"},
+    # 返修工具：不进放行门，判定只给返修人看。
+    {"id": "R.feedback_moved", "stage": "R", "judged": True, "basis": "derived", "limit": FEEDBACK_MOVEMENT_COUNTS, "unit": "counts"},
+    {"id": "R.feedback_span", "stage": "R", "judged": False, "basis": "tbc", "limit": FEEDBACK_SPAN_SUGGESTED_COUNTS, "unit": "counts"},
 )
 
 CRITERIA_BY_ID = {c["id"]: c for c in CRITERIA}
@@ -131,7 +133,7 @@ def max_step(samples: list[int]) -> int:
     return max((abs(b - a) for a, b in zip(unwrapped, unwrapped[1:])), default=0)
 
 
-# ---------- S3 整臂 ----------
+# ---------- S2 整臂 ----------
 
 
 def evaluate_arm_scan(
@@ -145,10 +147,10 @@ def evaluate_arm_scan(
 
     readable = [s for s in snapshots if s.get("ok")]
     checks: list[dict[str, Any]] = [
-        check("S3.present", len(readable) == len(snapshots) and len(snapshots) == 8, len(readable))
+        check("S2.present", len(readable) == len(snapshots) and len(snapshots) == 8, len(readable))
     ]
     firmware = sorted({s.get("firmware", "") for s in readable})
-    checks.append(check("S3.firmware_same", len(firmware) == 1 and firmware[0] != "", firmware))
+    checks.append(check("S2.firmware_same", len(firmware) == 1 and firmware[0] != "", firmware))
 
     per_motor: dict[str, list[dict[str, Any]]] = {}
     for snap in readable:
@@ -156,27 +158,39 @@ def evaluate_arm_scan(
         voltage = float(snap.get("voltage_v", 0.0))
         motor_checks = [
             check(
-                "S3.voltage",
+                "S2.voltage",
                 expected_voltage_v is not None
                 and abs(voltage - expected_voltage_v) <= SUPPLY_VOLTAGE_TOLERANCE_V,
                 voltage,
                 expected=expected_voltage_v,
             ),
             check(
-                "S3.temperature",
+                "S2.temperature",
                 int(snap.get("temperature_c", 999)) <= IDLE_TEMPERATURE_MAX_C,
                 snap.get("temperature_c"),
             ),
-            check("S3.status", int(snap.get("status_raw", -1)) == 0, snap.get("status_raw")),
-            check("S3.torque_off", int(snap.get("torque_enable", -1)) == 0, snap.get("torque_enable")),
+            check("S2.status", int(snap.get("status_raw", -1)) == 0, snap.get("status_raw")),
+            check("S2.torque_off", int(snap.get("torque_enable", -1)) == 0, snap.get("torque_enable")),
         ]
         per_motor[name] = motor_checks
 
+    # 过压保护限值只记录：BOM 给 7.5V 电源，规格书过压阈值是 7.4V，C046 的实际默认值要读真机。
+    # 若限值低于实测供电，电机会置状态告警位，S2.status 会判失败。
+    limits = sorted({float(s["max_voltage_limit_v"]) for s in readable if "max_voltage_limit_v" in s})
+    checks.append(
+        check(
+            "S2.protection_limits",
+            bool(limits) and expected_voltage_v is not None and min(limits) >= expected_voltage_v,
+            {"max_voltage_limit_v": limits,
+             "max_temperature_limit_c": sorted({s["max_temperature_limit_c"] for s in readable
+                                                if "max_temperature_limit_c" in s})},
+        )
+    )
     voltages = [float(s.get("voltage_v", 0.0)) for s in readable]
     spread = round(max(voltages) - min(voltages), 2) if voltages else None
     checks.append(
         check(
-            "S3.voltage_spread",
+            "S2.voltage_spread",
             spread is not None and spread <= VOLTAGE_SPREAD_SUGGESTED_V,
             spread,
         )
@@ -194,12 +208,12 @@ def evaluate_arm_scan(
 def evaluate_comm_stability(rounds: int, failures: int, duration_sec: float) -> dict[str, Any]:
     ok = rounds > 0 and failures == 0 and duration_sec >= COMM_STABILITY_SECONDS - 0.5
     return {
-        "checks": [check("S3.comm", ok, {"rounds": rounds, "failures": failures, "seconds": round(duration_sec, 1)})],
+        "checks": [check("S2.comm", ok, {"rounds": rounds, "failures": failures, "seconds": round(duration_sec, 1)})],
         "judged_ok": ok,
     }
 
 
-# ---------- S4 关节身份 ----------
+# ---------- S3 关节身份 ----------
 
 
 def evaluate_joint_identity(target: str, spans: dict[str, int]) -> dict[str, Any]:
@@ -218,13 +232,13 @@ def evaluate_joint_identity(target: str, spans: dict[str, int]) -> dict[str, Any
     span_ok = target_span >= IDENTITY_MIN_SPAN_COUNTS
     checks = [
         check(
-            "S4.identity",
+            "S3.identity",
             identity_ok,
             round(ratio, 2) if ratio != float("inf") else "inf",
             dominant=dominant_name,
             runner_up=runner_up_name,
         ),
-        check("S4.span", span_ok, target_span),
+        check("S3.span", span_ok, target_span),
     ]
     return {
         "checks": checks,
@@ -236,7 +250,7 @@ def evaluate_joint_identity(target: str, spans: dict[str, int]) -> dict[str, Any
     }
 
 
-# ---------- S6 官方驱动读数 ----------
+# ---------- S5 官方驱动读数 ----------
 
 # openarm_mini.get_action() 把 leader 的 joint_6 读数放进 follower 的 joint_7.pos，反之亦然。
 JOINT_REMAP = {"joint_6": "joint_7", "joint_7": "joint_6"}
@@ -257,7 +271,7 @@ def evaluate_readout(mode: str, readout: dict[str, Any], motor: str = "") -> dic
 
     mean = readout.get("mean", {})
     span = readout.get("span", {})
-    checks = [check("S6.calibrated", bool(readout.get("is_calibrated")), readout.get("is_calibrated"))]
+    checks = [check("S5.calibrated", bool(readout.get("is_calibrated")), readout.get("is_calibrated"))]
 
     if mode == "zero":
         joints = {k: v for k, v in mean.items() if k != "gripper.pos"}
@@ -265,7 +279,7 @@ def evaluate_readout(mode: str, readout: dict[str, Any], motor: str = "") -> dic
         worst = abs(joints[worst_key]) if worst_key else None
         checks.append(
             check(
-                "S6.zero_pose",
+                "S5.zero_pose",
                 len(joints) == 7 and worst is not None and worst <= ZERO_POSE_TOLERANCE_DEG,
                 round(worst, 2) if worst is not None else None,
                 worst_key=worst_key,
@@ -274,7 +288,7 @@ def evaluate_readout(mode: str, readout: dict[str, Any], motor: str = "") -> dic
         gripper = mean.get("gripper.pos")
         checks.append(
             check(
-                "S6.gripper_closed",
+                "S5.gripper_closed",
                 gripper is not None and gripper >= GRIPPER_CLOSED_MIN_DEG,
                 None if gripper is None else round(gripper, 2),
             )
@@ -283,7 +297,7 @@ def evaluate_readout(mode: str, readout: dict[str, Any], motor: str = "") -> dic
         gripper = mean.get("gripper.pos")
         checks.append(
             check(
-                "S6.gripper_open",
+                "S5.gripper_open",
                 gripper is not None and gripper <= GRIPPER_OPEN_MAX_DEG,
                 None if gripper is None else round(gripper, 2),
             )
@@ -294,7 +308,7 @@ def evaluate_readout(mode: str, readout: dict[str, Any], motor: str = "") -> dic
         moved = float(span.get(expected, 0.0))
         checks.append(
             check(
-                "S6.remap",
+                "S5.remap",
                 dominant == expected and moved >= READOUT_SWEEP_MIN_DEG,
                 round(moved, 2),
                 expected_key=expected,
@@ -306,7 +320,7 @@ def evaluate_readout(mode: str, readout: dict[str, Any], motor: str = "") -> dic
         direction = None
         if first is not None and last is not None and last != first:
             direction = "+" if last > first else "-"
-        checks.append(check("S6.direction", direction is not None, direction, key=expected))
+        checks.append(check("S5.direction", direction is not None, direction, key=expected))
     else:
         raise ValueError(mode)
 

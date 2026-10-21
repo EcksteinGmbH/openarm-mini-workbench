@@ -87,7 +87,7 @@ class OpenFailureTest(unittest.TestCase):
     def test_domain_call_surfaces_the_translated_message(self) -> None:
         messages.set_language("de")
         with self.assertRaises(ConnectionError) as caught:
-            main.scan_current_motor(MISSING_PORT, hardware_profile="mini_bench_5v")
+            main.scan_current_motor(MISSING_PORT, hardware_profile="mini_field_7v5")
         self.assertIn("konnte nicht geöffnet werden", str(caught.exception))
 
 
