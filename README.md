@@ -120,11 +120,12 @@ Mini 只有 leader 一种形态、只有 7.4V 一档，所以区分位留给左�
 ## 验证
 
 ```bash
-.venv/bin/python -m compileall -q app
+.venv/bin/python -m compileall -q app scripts/wiki_reindex.py
 .venv/bin/python -m unittest discover -s tests
+python3 scripts/wiki_reindex.py agent_wiki --check
 ```
 
-82 项单测，只锁可离线判定的规则：关节表与官方 ID 表一致、写 ID 顺序与驱动一致、
+95 项单测，只锁可离线判定的规则：关节表与官方 ID 表一致、写 ID 顺序与驱动一致、
 Feetech 符号位解码、编码器接缝展开、供电档位判据、编号规则、校准阶段提示串识别、
 失败特征串与处置一一对应、三语完整性。装有 `node` 时还会做一次内嵌 JS 语法检查。
 
@@ -195,11 +196,15 @@ ID 写入流程、校准子进程的阶段识别与作答。
 
 显式指定的路径无效时直接报错，不静默回退。页面会显示将启动哪个可执行文件、来源是哪一级。
 
-**给本工作站装带 `openarm_mini` 驱动的 LeRobot，要装进项目目录**：
+**给本工作站装带单臂 `openarm_mini` 驱动的 LeRobot，要装进项目目录**。
+PyPI 上的 `lerobot 0.4.4` 带的是**双臂代**驱动（只有 `port_right` / `port_left`），
+官方 README 的单臂命令跑不起来，工作站会在第 4 步拦下它；单臂代目前只在上游 `main`，
+所以按提交安装（需 Python ≥ 3.12）：
 
 ```bash
-python3 -m venv .venv-lerobot
-.venv-lerobot/bin/python -m pip install 'lerobot[feetech]'
+python3.12 -m venv .venv-lerobot
+.venv-lerobot/bin/python -m pip install \
+  'lerobot[feetech] @ git+https://github.com/huggingface/lerobot@eb7a54c6ff4983fc86075442bf4fa61503e7b5d1'
 ```
 
 **不要装到 `~/Projects/.venvs/`。** 那个共享目录被 SO-ARM101 工作站用
@@ -207,11 +212,12 @@ python3 -m venv .venv-lerobot
 选中的 LeRobot；装在项目内它看不见。详见
 [docs/official-comparison.md](docs/official-comparison.md) 的 A3。
 
-本机已按此安装（2026-09-29）：`.venv-lerobot/` 8.1G，`lerobot 0.4.4`（PyPI wheel，
-**含 `openarm_mini`**）。注意这台机器上「0.4.4」是歧义的：SO-ARM101 那个 venv 也叫
-0.4.4，但它是 `pip install -e` 装的
-`so-arm101-workbench/reference/lerobot/` 源码快照（取于 2026-08-07，早于
-`openarm_mini` 合并），因此**没有**这个驱动。引用版本时要连来源一起写。
+本机现状（2026-10-21 核对）：`.venv-lerobot/` 是 `lerobot 0.6.2 @ eb7a54c`（单臂代，
+含 `bi_openarm_mini`），工作站默认选中它。最初装的 PyPI 0.4.4（双臂代）挪到了
+`.venv-lerobot.py310-pypi/`，留作对照，工作站不会选它。SO-ARM101 那个 venv 也报 0.4.4，
+却是 `so-arm101-workbench/reference/lerobot/` 的 editable 快照，**没有** `openarm_mini`。
+版本号不能单独标识 LeRobot，引用时连来源/提交一起写。详见
+[agent_wiki/openarm-mini-driver-generations.md](agent_wiki/openarm-mini-driver-generations.md)。
 
 ## 已知范围限制
 
@@ -232,6 +238,9 @@ python3 -m venv .venv-lerobot
 - [docs/hardware-reference.md](docs/hardware-reference.md) —— BOM、打印参数、关节 ID 表、装配顺序、官方命令
 - [docs/lerobot-openarm-mini.md](docs/lerobot-openarm-mini.md) —— 上游驱动的校准流程、寄存器期望值、失败特征串
 - [docs/official-comparison.md](docs/official-comparison.md) —— 与官方逐项核对：一致项、有意的差异、缺失与待改
+- [agent_wiki/index.md](agent_wiki/index.md) —— 工程知识（决策、排障、约定），每页带证据来源；写页前读 [agent_wiki/AGENTS.md](agent_wiki/AGENTS.md)
+- [feature_wiki/standard-test-workflow.md](feature_wiki/standard-test-workflow.md) —— 操作员视角的五阶段流程、接口与边界情况
+- [CLAUDE.md](CLAUDE.md) 的「工程档案」—— 领域约束、验证命令、验收门、架构边界
 
 ## 许可与来源
 
