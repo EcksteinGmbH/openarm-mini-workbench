@@ -12,7 +12,7 @@ confidence: high
 
 # 启动哪个 lerobot-calibrate：显式优先、项目内优先，不按字母序
 
-第 4 步启动的 `lerobot-calibrate` 按「参数 > 环境变量 > 项目内 venv > PATH > 共享目录」解析，显式路径无效直接报错，不再按共享目录字母序取第一个。
+S4 官方校准启动的 `lerobot-calibrate`（S5 官方读数用同一环境的 Python）按「参数 > 环境变量 > 项目内 venv > PATH > 共享目录」解析，显式路径无效直接报错，不再按共享目录字母序取第一个。
 
 解析优先级：
 

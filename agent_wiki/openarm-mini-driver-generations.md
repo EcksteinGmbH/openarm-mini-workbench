@@ -28,7 +28,7 @@ PyPI `lerobot` 0.4.4 与 0.5.0 带的是双臂代 `openarm_mini`（`port_right/p
 ## 工作站怎么处理
 
 `probe_openarm_mini_driver()` 导入 `OpenArmMiniConfig` 按**字段**判定
-`single_arm` / `dual_arm` / 缺失；双臂版直接拦下第 4 步并说明原因。
+`single_arm` / `dual_arm` / 缺失；双臂版直接拦下 S4 校准与 S5 读数并说明原因。
 不读源码文本——editable 安装、补丁、插件覆盖都会骗过文本匹配。
 
 ## 本机现状（2026-10-21 核对）

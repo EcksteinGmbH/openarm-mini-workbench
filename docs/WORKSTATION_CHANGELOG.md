@@ -1,6 +1,6 @@
 # OpenArm Mini 工作站变更记录
 
-Current workstation version: **0.2.0**（与仓库根目录 `VERSION` 一致）
+Current workstation version: **0.3.0**（与仓库根目录 `VERSION` 一致）
 
 分级（沿用 OpenARM 工站规则）：
 
@@ -12,6 +12,34 @@ Current workstation version: **0.2.0**（与仓库根目录 `VERSION` 一致）
 历史条目是证据，不是现行规则。
 
 ---
+
+### 0.3.0 - 2026-10-21
+
+**Summary**：测试站定位改为「装配完成后的整臂软件测试」，电源一律 7.5V（官方 BOM）。
+不兼容 0.2.0 的流程与阶段编号（MAJOR 级变更；1.0 前按 MINOR 递增记）。
+
+**Changes**
+
+- 阶段重编号：S1 准备 → S2 整臂电气与通信 → S3 关节身份 → S4 官方校准 → S5 官方驱动读数 → S6 放行；S7 / S8 可选不变。
+  判据版本 `2026-10-21.2`，判据编号随之改变（如 `S3.temperature` → `S2.temperature`）。
+- 移除台架 5V 档，只剩 7.5V 一档（`mini_field_7v5`）。
+- 移除装配前写 ID（原 S1）的流程位置：挪到页面底部折叠的「返修工具：单电机写 ID」，不计入放行门；
+  报告里有返修操作时单列「返修记录」。
+- 移除装配检查表（原 S2）和终检检查表（原 S9）；准备检查表（S1）只留测试依赖的 5 项：
+  7.5V 电源、整臂挂在立柱上、菊花链与 USB、Waveshare 跳线、夹爪件左右与编号一致。
+- S2 扫描新增记录项：过压 / 过温保护限值（过压限值应 ≥ 7.5V）。
+
+**Verification**
+
+- `.venv/bin/python -m unittest discover -s tests`：139 项通过。
+- `OAML2026092901` 的 09-29 记录在新放行门下：只剩 S4 预检一项通过，其余缺项（原 S1 写 ID 记录作为返修记录列出，不计入）。
+- headless Chromium 渲染新页面，阶段条 S1–S6、返修工具折叠区正常。
+- **未做真机验收。**
+
+**Operational Notes**
+
+- 0.2.0 的会话日志里 `checklist` 阶段 `S0/S2/S9` 的记录不再被读取，需要按 S1 重新确认。
+- 旧版本可用 `git checkout v0.1.0`（原五阶段）或 `v0.2.0` 取回对照。
 
 ### 0.2.0 - 2026-10-21
 
