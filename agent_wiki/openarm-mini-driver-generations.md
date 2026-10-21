@@ -1,5 +1,5 @@
 ---
-title: "openarm_mini 驱动有单臂/双臂两代，PyPI 0.4.4 是双臂版，工作站要单臂版"
+title: "openarm_mini 驱动有单臂/双臂两代：PyPI 0.4.4/0.5.0 是双臂版，0.6.1 起是单臂版"
 category: environment
 tags: [openarm-mini, lerobot, venv, version, draccus]
 sources:
@@ -7,19 +7,20 @@ sources:
   - "tests/test_workstation.py: DriverGenerationTest"
   - "git 7494016 提交说明（draccus 报 `The fields port are not valid for OpenArmMiniConfig`）"
   - "2026-10-21 本机探测：dataclasses.fields(OpenArmMiniConfig) 与 dist-info/direct_url.json"
+  - "2026-10-21 PyPI wheel 0.4.4 / 0.5.0 / 0.6.1 的 config_openarm_mini.py 字段比对；0.6.1 与 eb7a54c 的 openarm_mini.py、feetech/、motors_bus.py diff"
 confidence: high
 ---
 
-# openarm_mini 驱动有单臂/双臂两代，PyPI 0.4.4 是双臂版，工作站要单臂版
+# openarm_mini 驱动有单臂/双臂两代：PyPI 0.4.4/0.5.0 是双臂版，0.6.1 起是单臂版
 
-PyPI `lerobot 0.4.4` 带的是双臂代 `openarm_mini`（`port_right/port_left`），官方 README 的单臂命令要 lerobot main 的单臂代；工作站按配置字段判别并拦下双臂代，本机 `.venv-lerobot` 现为 0.6.2 @ `eb7a54c`（单臂）。
+PyPI `lerobot` 0.4.4 与 0.5.0 带的是双臂代 `openarm_mini`（`port_right/port_left`），0.6.1（2026-08-03）起是官方 README 命令所需的单臂代；工作站按配置字段判别并拦下双臂代，本机 `.venv-lerobot` 现为 0.6.2 @ `eb7a54c`（单臂）。
 
 同一个模块名 `lerobot.teleoperators.openarm_mini` 背后有两代**不兼容**的驱动：
 
 | 代 | 出处 | `OpenArmMiniConfig` 字段 | 行为 |
 |---|---|---|---|
-| 双臂 | PyPI `lerobot 0.4.4` | `port_right`, `port_left`, `use_degrees` | 同时开两条总线，校准 6 次确认，键名带 `right_`/`left_` |
-| 单臂 | lerobot `main`（另有 `bi_openarm_mini`） | `port`, `side`, `use_degrees` | 官方硬件 README 的命令按这一代写 |
+| 双臂 | PyPI `lerobot` 0.4.4、0.5.0 | `port_right`, `port_left`, `use_degrees` | 同时开两条总线，校准 6 次确认，键名带 `right_`/`left_` |
+| 单臂 | PyPI `lerobot` ≥0.6.1 与 `main`（另有 `bi_openarm_mini`） | `port`, `side`, `use_degrees` | 官方硬件 README 的命令按这一代写 |
 
 官方 README 的 `--teleop.port=...` 在双臂版上会被 draccus 拒绝：
 `The fields port are not valid for OpenArmMiniConfig`。
@@ -40,3 +41,7 @@ PyPI `lerobot 0.4.4` 带的是双臂代 `openarm_mini`（`port_right/port_left`�
 
 **版本号不能单独标识 LeRobot**：本机两个「0.4.4」完全不同。引用时连来源/提交一起写。
 选中哪个可执行文件的规则见 [[lerobot-executable-resolution]]。
+
+提交 7494016 写的「PyPI 没有任何发布含单臂驱动」在当时就不成立：0.6.1 已发布单臂代。
+0.6.1 与 eb7a54c 的 `openarm_mini.py` 只差变量改名和一处 `calibration is None` 保护，`feetech/`、`motors_bus.py`、`teleoperator.py` 完全相同，
+可作为可复现的钉定版本（Python ≥3.12）。lerobot main 在 eb7a54c 之后改了沿用提示串与偏移超限行为，升级越过 0.6.1 前须先改特征串。

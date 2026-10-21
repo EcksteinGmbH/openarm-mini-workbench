@@ -31,4 +31,4 @@
 
 ## environment
 
-- [openarm_mini 驱动有单臂/双臂两代，PyPI 0.4.4 是双臂版，工作站要单臂版](openarm-mini-driver-generations.md) — PyPI `lerobot 0.4.4` 带的是双臂代 `openarm_mini`（`port_right/port_left`），官方 README 的单臂命令要 lerobot main 的单臂代；工作站按配置字段判别并拦下双臂代，本机 `.venv-lerobot` 现为 0.6.2 @ `eb7a54c`（单
+- [openarm_mini 驱动有单臂/双臂两代：PyPI 0.4.4/0.5.0 是双臂版，0.6.1 起是单臂版](openarm-mini-driver-generations.md) — PyPI `lerobot` 0.4.4 与 0.5.0 带的是双臂代 `openarm_mini`（`port_right/port_left`），0.6.1（2026-08-03）起是官方 README 命令所需的单臂代；工作站按配置字段判别并拦下双臂代，本机 `.venv-lerobot` 现为 0.6.2 @
