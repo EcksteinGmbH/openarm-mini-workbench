@@ -207,7 +207,13 @@ def full_pass_records():
         records.append(rec(next(t), "feedback-test", {"motor": name}, {"ok": True, "span": 900}))
     records.append(rec(next(t), "scan-all", {}, {"judged": True, "overall_ok": True,
                                                  "hardware_profile": "mini_field_7v5", "passed": 8, "total": 8}))
-    records.append(rec(next(t), "comm-stability", {}, {"ok": True, "rounds": 900, "failures": 0}))
+    records.append(rec(next(t), "comm-stability", {}, {
+        "ok": True,
+        "duration_sec": 60,
+        "rounds": 900,
+        "reads": 7200,
+        "failures": 0,
+    }))
     for name in MOTORS:
         records.append(rec(next(t), "joint-identity", {"motor": name}, {"ok": True}))
     records.append(rec(next(t), "calibration/precheck", {}, {"overall_ok": True}))
@@ -217,7 +223,10 @@ def full_pass_records():
     records.append(rec(next(t), "official-readout", {"mode": "zero"}, {"ok": True}))
     records.append(rec(next(t), "official-readout", {"mode": "gripper_open"}, {"ok": True}))
     for name in gate.READOUT_SWEEPS:
-        records.append(rec(next(t), "official-readout", {"mode": "sweep", "motor": name}, {"ok": True}))
+        result = {"ok": True}
+        if name == gate.READOUT_SWEEPS[-1]:
+            result["delivery_command"] = "lerobot-teleoperate --teleop.id=OAML2026102101"
+        records.append(rec(next(t), "official-readout", {"mode": "sweep", "motor": name}, result))
     return records
 
 
@@ -332,29 +341,114 @@ class ChecklistTest(unittest.TestCase):
 class ArchiveTest(unittest.TestCase):
     def setUp(self) -> None:
         self._print_pdf = gate.print_pdf
+        self._archive_root = main._archive_root
         gate.print_pdf = lambda _html, _pdf: "skipped in tests"  # type: ignore[assignment]
         messages.set_language("zh")
 
     def tearDown(self) -> None:
         gate.print_pdf = self._print_pdf  # type: ignore[assignment]
+        main._archive_root = self._archive_root  # type: ignore[assignment]
 
     def test_archive_writes_files_index_and_increments_revision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session = root / "s.jsonl"
             session.write_text("{}\n", encoding="utf-8")
-            first = gate.write_archive(root, "OAML2026102101", "left", full_pass_records(), MOTORS,
-                                       {"workstation_version": "0.2.0"}, session, None)
+            records = full_pass_records()
+            saved = next(record for record in records if record["action"] == "calibration/finished")
+            saved["data"]["result"]["command"] = ["internal-calibration-command"]
+            records.insert(-1, rec(
+                "2026-10-21T10:04:07+08:00",
+                "official-readout",
+                {"mode": "sweep", "motor": "joint_7"},
+                {"ok": False, "mode": "sweep", "reason": "historical-readout-retry",
+                 "checks": [{"id": "S6.remap", "value": 98765}]},
+            ))
+            first = gate.write_archive(root, "OAML2026102101", "left", records, MOTORS,
+                                       {"workstation_version": "0.5.0", "project_lead": "pengcheng"},
+                                       session, None)
             self.assertEqual(first["verdict"], "PASS")
             self.assertEqual(first["doc_id"], "OAM-L-BENCH-RESULT-OAML2026102101-R01")
             second = gate.write_archive(root, "OAML2026102101", "left", full_pass_records(), MOTORS,
                                         {}, session, None)
             self.assertEqual(second["revision"], 2)
+            self.assertEqual(second["doc_id"], "OAM-L-BENCH-RESULT-OAML2026102101-R01")
             index = (root / "编号与归档索引.md").read_text(encoding="utf-8")
             self.assertEqual(index.count("\n| OAML2026102101 |"), 2)
-            report = Path(first["files"][0]).read_text(encoding="utf-8")
-            self.assertIn("放行判定", report)
-            self.assertIn("未执行，不得解释为通过", report)
+            zh_report = Path(first["reports"]["zh"]["md"]).read_text(encoding="utf-8")
+            en_report = Path(first["reports"]["en"]["md"]).read_text(encoding="utf-8")
+            de_report = Path(first["reports"]["de"]["md"]).read_text(encoding="utf-8")
+            self.assertIn("放行判定", zh_report)
+            self.assertNotIn("Release verdict", zh_report)
+            self.assertIn("Release verdict", en_report)
+            self.assertNotIn("放行判定", en_report)
+            self.assertIn("Freigabeentscheidung", de_report)
+            self.assertEqual(zh_report.count("pengcheng"), 2)
+            self.assertEqual(en_report.count("pengcheng"), 2)
+            self.assertEqual(de_report.count("pengcheng"), 2)
+            self.assertNotIn("自动生成", zh_report)
+            self.assertNotIn("generated automatically", en_report)
+            self.assertNotIn("automatisch", de_report)
+            self.assertNotIn("S8 / S9", zh_report)
+            self.assertNotIn("S8 / S9", en_report)
+            self.assertNotIn("S8 / S9", de_report)
+            self.assertIn("交付提醒", zh_report)
+            self.assertIn("lerobot-teleoperate --teleop.id=OAML2026102101", zh_report)
+            self.assertIn("不能原样复制执行", zh_report)
+            self.assertIn("`<can0>`", zh_report)
+            self.assertIn("`<follower_id>`", zh_report)
+            self.assertIn("`--teleop.port`", zh_report)
+            self.assertIn("通信轮询周期", zh_report)
+            self.assertIn("不是机械动作或独立测试次数", zh_report)
+            self.assertIn("do not copy and run it unchanged", en_report)
+            self.assertIn("communication polling cycles", en_report)
+            self.assertIn("not mechanical movements or separate tests", en_report)
+            self.assertIn("Nicht unverändert kopieren und ausführen", de_report)
+            self.assertIn("Kommunikationsabfragezyklen", de_report)
+            self.assertIn("keine mechanischen Bewegungen oder separaten Prüfungen", de_report)
+            self.assertNotIn("internal-calibration-command", zh_report)
+            self.assertNotIn("异常与重测记录", zh_report)
+            self.assertNotIn("Anomalies and retests", en_report)
+            self.assertNotIn("Abweichungen und Wiederholungsprüfungen", de_report)
+            self.assertNotIn("historical-readout-retry", zh_report)
+            self.assertNotIn("98765", zh_report)
+            self.assertNotIn("待定标", zh_report)
+            self.assertNotIn("To be calibrated", en_report)
+            self.assertNotIn("Noch zu kalibrieren", de_report)
+            self.assertNotIn("S2.joint_span", zh_report)
+            self.assertEqual(zh_report.count("| 扫动 |"), 2)
+            gate_json = Path(first["files"][-1]).read_text(encoding="utf-8")
+            self.assertIn('"project_lead": "pengcheng"', gate_json)
+            self.assertIn('"archive_revision": 1', gate_json)
+            self.assertIn('"historical_anomalies"', gate_json)
+            self.assertIn("historical-readout-retry", gate_json)
+            main._archive_root = lambda: root  # type: ignore[assignment]
+            self.assertEqual(
+                main.archived_report_path("OAML2026102101", 1, "de", "html"),
+                Path(first["reports"]["de"]["html"]),
+            )
+            with self.assertRaises(ValueError):
+                main.archived_report_path("OAML2026102101", 1, "../de", "html")
+            with self.assertRaises(ValueError):
+                main.archived_report_path("OAML2026102101", 1, "de", "json")
+            latest = main.latest_archived_reports("OAML2026102101")
+            self.assertEqual(latest["revision"], 2)
+            self.assertEqual(latest["doc_id"], "OAM-L-BENCH-RESULT-OAML2026102101-R01")
+            self.assertEqual(set(latest["reports"]), {"zh", "en", "de"})
+            self.assertTrue(latest["reports"]["zh"]["view_url"].endswith("language=zh&format=html"))
+
+    def test_report_html_embeds_company_logo_in_upper_left_header(self) -> None:
+        rendered = gate.render_html(
+            [("h1", "OpenArm Mini Factory Test"), ("table", (["Item"], [["Value"]]))],
+            "OAM-L-BENCH-RESULT-TEST-R01",
+            "en",
+        )
+        self.assertTrue(gate.REPORT_LOGO_PATH.is_file())
+        self.assertIn("data:image/png;base64,", rendered)
+        self.assertIn("class='report-header'", rendered)
+        self.assertIn("class='report-meta'", rendered)
+        self.assertLess(rendered.index("class='report-logo'"), rendered.index("<h1>"))
+        self.assertIn("grid-template-columns:180px 1fr", rendered)
 
 
 class ReadoutScriptTest(unittest.TestCase):

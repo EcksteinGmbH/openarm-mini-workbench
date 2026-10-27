@@ -5,7 +5,7 @@
 - 校准之后的项（核对、断电核对、官方读数）必须晚于最近一次「已保存」的校准，
   否则那是对上一份校准文件的证据，不算。
 - 结论：全部 PASS → PASS；任一 FAIL → FAIL；其余 → HOLD。
-- 历史失败不删，进「异常与重测记录」。
+- 历史失败不删，保留在内部会话日志与机读放行文件；客户报告只展示最终有效记录。
 
 SO-ARM101 的教训：判定只在前端算、归档脚本按默认值写「通过」，结果三台 Leader 的
 质检节是「本次未采集」而结论仍是通过。这里缺项一律 HOLD。
@@ -13,12 +13,14 @@ SO-ARM101 的教训：判定只在前端算、归档脚本按默认值写「通�
 
 from __future__ import annotations
 
+import base64
 import html
 import json
 import re
 import shutil
 import subprocess
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,6 +37,9 @@ DEFAULT_BAUDRATE = 1_000_000
 FIELD_PROFILE = "mini_field_7v5"
 # S6 必做的扫动：J6/J7 验证驱动的对调，其余关节的身份已由 S4 在寄存器层验证。
 READOUT_SWEEPS = ("joint_6", "joint_7")
+REPORT_FILE_LABEL = "OpenArmMini_基础测试记录"
+REPORT_LOGO_PATH = Path(__file__).resolve().parents[1] / "assets" / "eckstein_logo.png"
+REPORT_DOCUMENT_REVISION = 1
 
 PASS, FAIL, MISSING = "PASS", "FAIL", "MISSING"
 
@@ -272,6 +277,16 @@ def anomalies(records: list[dict[str, Any]]) -> list[dict[str, str]]:
 Block = tuple[str, Any]
 
 
+@lru_cache(maxsize=1)
+def _report_logo_data_uri() -> str:
+    """把正式企业标识嵌入报告，保证单独交付 HTML/PDF 时不丢图。"""
+
+    payload = REPORT_LOGO_PATH.read_bytes()
+    if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError(f"invalid report logo: {REPORT_LOGO_PATH}")
+    return "data:image/png;base64," + base64.b64encode(payload).decode("ascii")
+
+
 def _fmt(value: Any) -> str:
     if value is None or value == "":
         return "-"
@@ -284,7 +299,14 @@ def _fmt(value: Any) -> str:
     return str(value)
 
 
-def build_report(
+def report_document_id(robot_id: str, side: str) -> str:
+    """客户文档版次独立于工作站内部归档次数。"""
+
+    code = "L" if side == "left" else "R"
+    return f"OAM-{code}-BENCH-RESULT-{robot_id}-R{REPORT_DOCUMENT_REVISION:02d}"
+
+
+def _build_report_language(
     robot_id: str,
     side: str,
     records: list[dict[str, Any]],
@@ -292,37 +314,40 @@ def build_report(
     context: dict[str, Any],
     revision: int,
 ) -> tuple[list[Block], dict[str, Any]]:
-    """报告固定用中文（与兄弟工站归档一致）。调用方负责把语言设成 zh。"""
+    """使用当前文案语言构建一个完整的报告区块。"""
 
     result = evaluate(records, motors)
     ordered = sorted(motors, key=lambda n: motors[n]["id"])
-    code = "L" if side == "left" else "R"
-    doc_id = f"OAM-{code}-BENCH-RESULT-{robot_id}-R{revision:02d}"
+    doc_id = report_document_id(robot_id, side)
     s1_record = _latest(records, "checklist", lambda r: _request(r).get("stage") == "S1")
     operator = _result(s1_record).get("operator", "") if s1_record else ""
+    project_lead = str(context.get("project_lead") or "-")
+    language = messages.get_language()
     blocks: list[Block] = [
-        ("h1", f"OpenArm Mini 基础测试记录 · {robot_id}"),
-        ("table", (["项", "内容"], [
-            ["文档号", doc_id],
-            ["编号 / 臂侧", f"{robot_id} / {'左臂 L' if side == 'left' else '右臂 R'}"],
-            ["生成时间", datetime.now().astimezone().isoformat(timespec="seconds")],
-            ["结论", result["verdict"]],
-            ["操作员", operator or "-"],
-            ["工作站版本", context.get("workstation_version", "-")],
-            ["判据版本", crit.CRITERIA_VERSION],
-            ["LeRobot", f"{context.get('lerobot', {}).get('version', '-')}（{context.get('lerobot', {}).get('source', '-')}）"],
-            ["硬件依据", "pkooij/open-arms-mini README/BOM；lerobot teleoperators/openarm_mini"],
-            ["供电", "7.5V（官方 BOM），整臂装配完成后测试"],
+        ("h1", _m("report_title", robot_id=robot_id)),
+        ("table", ([_m("report_col_item"), _m("report_col_content")], [
+            [_m("report_document_id"), doc_id],
+            [_m("report_language"), _m("report_language_" + language)],
+            [_m("report_serial_side"),
+             f"{robot_id} / {_m('report_side_left' if side == 'left' else 'report_side_right')}"],
+            [_m("report_generated_at"), datetime.now().astimezone().isoformat(timespec="seconds")],
+            [_m("report_verdict"), result["verdict"]],
+            [_m("report_operator"), operator or "-"],
+            [_m("report_project_lead"), project_lead],
+            [_m("report_workstation_version"), context.get("workstation_version", "-")],
+            [_m("report_criteria_version"), crit.CRITERIA_VERSION],
+            ["LeRobot", f"{context.get('lerobot', {}).get('version', '-')} "
+                        f"({context.get('lerobot', {}).get('source', '-')})"],
+            [_m("report_hardware_basis"), "pkooij/open-arms-mini README/BOM; lerobot teleoperators/openarm_mini"],
+            [_m("report_supply"), _m("report_supply_value")],
         ])),
-        ("p", "本记录由工作站会话日志自动生成，实测数值未经人工转录。测试对象为装配完成的整臂，"
-              "电机 ID 在装配完成后由本测试站逐颗写入。每个必做项取最近一次记录；"
-              "校准之后的项只采信晚于最近一次已保存校准的记录。结论 PASS 需全部必做项通过，"
-              "缺项为 HOLD，任一最近记录失败为 FAIL。全程未开启扭矩、未下发目标位置。"),
-        ("h2", "1 放行判定"),
-        ("table", (["阶段", "项目", "结果", "记录时间", "说明"],
+        ("p", _m("report_intro")),
+        ("h2", _m("report_section_release")),
+        ("table", ([_m("report_col_stage"), _m("report_col_test_item"), _m("report_col_result"),
+                    _m("report_col_recorded_at"), _m("report_col_notes")],
                    [[i["stage"], i["label"], i["status"], i["at"] or "-", i["detail"] or ""]
                     for i in result["items"]])),
-        ("h2", "2 S1 准备"),
+        ("h2", _m("report_section_preparation")),
         _checklist_table(s1_record, "S1"),
     ]
 
@@ -344,43 +369,58 @@ def build_report(
             motor_title(motors, name),
             _fmt((wr.get("detected") or {}).get("id")),
             _fmt(wr.get("target_id")),
-            "是" if rescan and not _error(rescan) else "-",
+            _m("report_yes") if rescan and not _error(rescan) else "-",
             _fmt(cf.get("span")),
             _fmt(cf.get("voltage_v")),
             _fmt(baseline.get("firmware")),
-            "通过" if cf.get("ok") else ("失败" if confirm else "无记录"),
+            _m("report_passed") if cf.get("ok") else (_m("report_failed") if confirm else _m("report_no_record")),
         ])
     blocks += [
-        ("h2", "3 S2 装配后逐颗写 ID"),
-        ("p", "整臂装配完成后，驱动板每次只接一颗电机：广播确认总线上只有它 → 写该关节的 ID 与 1 Mbps"
-              " → 断电 ≥5 秒复扫 → 只动这个关节确认读数随之变化。电机已装在关节上，ID 与位置一一对应。"),
-        ("table", (["关节", "原 ID", "写入 ID", "断电复扫", "确认跨度", "电压 V", "固件", "确认"], rows)),
+        ("h2", _m("report_section_write_ids")),
+        ("p", _m("report_write_ids_intro")),
+        ("table", ([_m("report_col_joint"), _m("report_col_original_id"), _m("report_col_written_id"),
+                    _m("report_col_power_cycle_rescan"), _m("report_col_confirmation_span"),
+                    _m("report_col_voltage"), _m("report_col_firmware"), _m("report_col_confirmation")], rows)),
     ]
 
     # S3
     scan = _latest(records, "scan-all", lambda r: bool(_result(r).get("judged")))
-    blocks.append(("h2", "4 S3 整臂电气与通信"))
+    blocks.append(("h2", _m("report_section_electrical")))
     if scan:
         sr = _result(scan)
         blocks.append(("table", (
-            ["关节", "ID", "位置", "电压 V", "温度 °C", "状态", "扭矩", "固件", "过压限值 V", "过温限值 °C",
-             "Phase", "Max_Acc", "判定"],
-            [[r.get("motor_title", r.get("motor_name")), _fmt(r.get("motor_id")),
+            [_m("report_col_joint"), "ID", _m("report_col_position"), _m("report_col_voltage"),
+             _m("report_col_temperature"), _m("report_col_status"), _m("report_col_torque"),
+             _m("report_col_firmware"), _m("report_col_overvoltage_limit"),
+             _m("report_col_overtemperature_limit"), "Phase", "Max_Acc", _m("report_col_judgement")],
+            [[motor_title(motors, r["motor_name"]) if r.get("motor_name") in motors
+              else r.get("motor_title", r.get("motor_name")), _fmt(r.get("motor_id")),
               _fmt(r.get("present_position")), _fmt(r.get("voltage_v")), _fmt(r.get("temperature_c")),
               _fmt(r.get("status_raw")), _fmt(r.get("torque_enable")), _fmt(r.get("firmware")),
               _fmt(r.get("max_voltage_limit_v")), _fmt(r.get("max_temperature_limit_c")),
               _fmt(r.get("phase")), _fmt(r.get("max_acceleration")),
-              "通过" if r.get("judged_ok") else "失败"] for r in sr.get("results", [])],
+              _m("report_passed") if r.get("judged_ok") else _m("report_failed")]
+             for r in sr.get("results", [])],
         )))
-        blocks.append(("p", f"供电档位 {sr.get('hardware_profile') or '-'}；固件 {_fmt(sr.get('firmware_versions'))}；"
-                            f"电压极差 {_fmt(sr.get('voltage_spread_v'))} V（记录项）。记录时间 {scan.get('recorded_at')}。"))
+        blocks.append(("p", _m(
+            "report_scan_summary",
+            profile=sr.get("hardware_profile") or "-",
+            firmware=_fmt(sr.get("firmware_versions")),
+            spread=_fmt(sr.get("voltage_spread_v")),
+            recorded_at=scan.get("recorded_at"),
+        )))
     else:
-        blocks.append(("p", "无记录。"))
+        blocks.append(("p", _m("report_no_record") + "."))
     comm = _latest(records, "comm-stability")
     if comm:
         cr = _result(comm)
-        blocks.append(("p", f"通信稳定：{_fmt(cr.get('duration_sec'))} s，{_fmt(cr.get('rounds'))} 轮 / "
-                            f"{_fmt(cr.get('reads'))} 次读，失败 {_fmt(cr.get('failures'))}。"))
+        blocks.append(("p", _m(
+            "report_comm_summary",
+            duration=_fmt(cr.get("duration_sec")),
+            rounds=_fmt(cr.get("rounds")),
+            reads=_fmt(cr.get("reads")),
+            failures=_fmt(cr.get("failures")),
+        )))
 
     # S4
     rows = []
@@ -390,78 +430,133 @@ def build_report(
         rows.append([motor_title(motors, name), _fmt(rr.get("target_span")),
                      motor_title(motors, rr["dominant"]) if rr.get("dominant") in motors else "-",
                      _fmt(rr.get("runner_up_span")),
-                     "通过" if rr.get("ok") else ("失败" if record else "无记录")])
+                     _m("report_passed") if rr.get("ok")
+                     else (_m("report_failed") if record else _m("report_no_record"))])
     blocks += [
-        ("h2", "5 S4 关节身份与活动性"),
-        ("table", (["被测关节", "跨度（计数）", "跨度最大的电机", "次大跨度", "判定"], rows)),
-        ("p", f"判据：跨度最大的电机就是被测关节，且 ≥ 次大 × {crit.IDENTITY_DOMINANCE_RATIO:g}；"
-              f"被测跨度 ≥ {crit.IDENTITY_MIN_SPAN_COUNTS} 计数。"),
+        ("h2", _m("report_section_identity")),
+        ("table", ([_m("report_col_tested_joint"), _m("report_col_span_counts"),
+                    _m("report_col_largest_span_motor"), _m("report_col_runner_up_span"),
+                    _m("report_col_judgement")], rows)),
+        ("p", _m("report_identity_criterion", ratio=f"{crit.IDENTITY_DOMINANCE_RATIO:g}",
+                  minimum=crit.IDENTITY_MIN_SPAN_COUNTS)),
     ]
 
     # S5
-    blocks.append(("h2", "6 S5 官方校准与一致性核对"))
+    blocks.append(("h2", _m("report_section_calibration")))
     saved = _latest(records, "calibration/finished", lambda r: _result(r).get("phase") == "saved")
+    saved_at = saved.get("recorded_at", "") if saved else ""
     calibration = context.get("calibration") or (_result(saved).get("calibration") if saved else None)
     if isinstance(calibration, dict):
         blocks.append(("table", (
-            ["关节", "id", "drive_mode", "homing_offset", "range_min", "range_max"],
+            [_m("report_col_joint"), "id", "drive_mode", "homing_offset", "range_min", "range_max"],
             [[motor_title(motors, n) if n in motors else n, _fmt(v.get("id")), _fmt(v.get("drive_mode")),
               _fmt(v.get("homing_offset")), _fmt(v.get("range_min")), _fmt(v.get("range_max"))]
              for n, v in calibration.items() if isinstance(v, dict)],
         )))
     else:
-        blocks.append(("p", "没有已保存的校准文件。"))
+        blocks.append(("p", _m("report_no_calibration")))
     if saved:
-        blocks.append(("p", f"校准保存时间 {saved.get('recorded_at')}；命令 "
-                            f"`{' '.join(_result(saved).get('command', []))}`。"))
+        blocks.append(("p", _m(
+            "report_calibration_saved",
+            recorded_at=saved.get("recorded_at"),
+        )))
 
-    # S6
-    blocks.append(("h2", "7 S6 官方驱动读数验证"))
+    # S6：客户报告只展示当前校准之后每个必测项的最终有效记录。
+    # 历史失败与被后续复测覆盖的记录仍保留在会话日志和机读放行文件中。
+    blocks.append(("h2", _m("report_section_readout")))
     rows = []
-    for record in records:
-        if record.get("action") != "official-readout" or _error(record):
+    readouts = [("zero", ""), ("gripper_open", "")] + [("sweep", n) for n in READOUT_SWEEPS]
+    for mode, name in readouts:
+        record = _latest(
+            records,
+            "official-readout",
+            lambda r, md=mode, n=name: _request(r).get("mode") == md
+            and (not n or _request(r).get("motor") == n),
+            after=saved_at,
+        ) if saved else None
+        if record is None or _error(record):
             continue
         rr = _result(record)
         values = "; ".join(f"{c['id']}={_fmt(c.get('value'))}" for c in rr.get("checks", []))
-        rows.append([record.get("recorded_at", ""), rr.get("mode", ""), rr.get("motor_title", ""),
-                     values, "通过" if rr.get("ok") else "失败"])
-    blocks.append(("table", (["时间", "模式", "关节", "读数", "判定"], rows)) if rows else ("p", "无记录。"))
-    last_readout = _latest(records, "official-readout", lambda r: bool(_result(r).get("delivery_command")))
+        title = motor_title(motors, name) if name else ""
+        mode_label = _m("report_mode_" + mode)
+        rows.append([record.get("recorded_at", ""), mode_label, title,
+                     values, _m("report_passed") if rr.get("ok") else _m("report_failed")])
+    blocks.append(("table", ([_m("report_col_time"), _m("report_col_mode"), _m("report_col_joint"),
+                              _m("report_col_readings"), _m("report_col_judgement")], rows))
+                  if rows else ("p", _m("report_no_record") + "."))
+    last_readout = _latest(
+        records,
+        "official-readout",
+        lambda r: bool(_result(r).get("delivery_command")),
+        after=saved_at,
+    ) if saved else None
     if last_readout:
-        blocks += [("p", "交付给客户的遥操作命令（官方 README 的命令缺 --robot.* 与 --teleop.side，照抄跑不起来）："),
+        blocks += [("p", _m("report_delivery_command")),
                    ("code", _result(last_readout)["delivery_command"])]
 
-    blocks += [("h2", "8 S8 / S9"), ("p", "S8 与 follower 遥操作配对、S9 增强复测：未执行，不得解释为通过。")]
-
-    # 判据表
+    # 客户报告只列参与放行的判据。待定标/仅记录项继续保留在 criteria.py 与内部数据中。
+    basis_labels = {
+        "official": _m("report_basis_official"),
+        "spec": _m("report_basis_spec"),
+        "derived": _m("report_basis_derived"),
+    }
     blocks += [
-        ("h2", "9 判据表"),
-        ("table", (["编号", "内容", "阈值", "依据", "参与判定"],
+        ("h2", _m("report_section_criteria")),
+        ("table", ([_m("report_col_number"), _m("report_col_description"), _m("report_col_limit"),
+                    _m("report_col_basis")],
                    [[c["id"], messages.m(crit.criterion_key(c["id"])),
                      f"{_fmt(c['limit'])} {c.get('unit', '')}".strip(),
-                     {"official": "官方", "spec": "规格", "derived": "推导", "tbc": "待定标"}[c["basis"]],
-                     "是" if c["judged"] else "否（记录）"] for c in crit.CRITERIA])),
+                     basis_labels[c["basis"]]]
+                    for c in crit.CRITERIA if c["judged"]])),
     ]
-    rows = [[a["at"], a["action"], a["detail"][:300]] for a in anomalies(records)]
-    blocks += [("h2", "10 异常与重测记录"),
-               ("table", (["时间", "操作", "说明"], rows)) if rows else ("p", "无。")]
     blocks += [
-        ("h2", "11 未验证项与边界"),
-        ("p", "未覆盖：与 follower 的遥操作配对（S8）、增强复测（S9）、负载、耐久、重复精度、夹持力。"
-              "待定标项（判据表中“否（记录）”）只记录不判定。"),
-        ("h2", "12 签核"),
-        ("table", (["角色", "姓名", "签字", "日期"],
-                   [["测试员", operator or "", "", ""], ["复核", "", "", ""]])),
+        ("h2", _m("report_section_boundaries")),
+        ("p", _m("report_boundaries")),
+        ("h2", _m("report_section_signoff")),
+        ("table", ([_m("report_col_role"), _m("report_col_name"), _m("report_col_signature"),
+                    _m("report_col_date")],
+                   [[_m("report_role_tester"), operator or "", "", ""],
+                    [_m("report_project_lead"), project_lead, "", ""],
+                    [_m("report_role_reviewer"), "", "", ""]])),
     ]
-    return blocks, {**result, "doc_id": doc_id, "operator": operator}
+    return blocks, {
+        **result,
+        "doc_id": doc_id,
+        "language": language,
+        "operator": operator,
+        "project_lead": project_lead,
+    }
+
+
+def build_report(
+    robot_id: str,
+    side: str,
+    records: list[dict[str, Any]],
+    motors: dict[str, dict[str, Any]],
+    context: dict[str, Any],
+    revision: int,
+    language: str,
+) -> tuple[list[Block], dict[str, Any]]:
+    """用指定语言生成一份独立报告，不依赖当前 HTTP 请求语言。"""
+
+    if language not in messages.LANGUAGES:
+        raise ValueError(f"unsupported report language: {language}")
+    original_language = messages.get_language()
+    try:
+        messages.set_language(language)
+        return _build_report_language(robot_id, side, records, motors, context, revision)
+    finally:
+        messages.set_language(original_language)
 
 
 def _checklist_table(record: dict[str, Any] | None, stage: str) -> Block:
     if record is None:
-        return ("p", "无记录。")
+        return ("p", _m("report_no_record") + ".")
     items = _result(record).get("items", {})
     rows = [[messages.m(f"checklist_{stage}_{k}"), "✔" if v else "✘"] for k, v in items.items()]
-    return ("table", (["检查项", "结果"], rows + [["记录时间", record.get("recorded_at", "")]]))
+    return ("table", ([_m("report_col_check_item"), _m("report_col_result")],
+                      rows + [[_m("report_col_recorded_at"), record.get("recorded_at", "")]]))
 
 
 def render_markdown(blocks: list[Block]) -> str:
@@ -485,10 +580,24 @@ def render_markdown(blocks: list[Block]) -> str:
     return "\n".join(out)
 
 
-def render_html(blocks: list[Block], title: str) -> str:
+def render_html(blocks: list[Block], title: str, language: str) -> str:
     parts = []
+    title_rendered = False
+    table_index = 0
+    logo_uri = _report_logo_data_uri()
     for kind, content in blocks:
-        if kind in ("h1", "h2"):
+        if kind == "h1" and not title_rendered:
+            parts.append(
+                "<header class='report-header'>"
+                "<div class='report-brand'>"
+                f"<img class='report-logo' src='{logo_uri}' alt='ECKSTEIN'>"
+                "<div class='report-product'>OPENARM MINI</div>"
+                "</div>"
+                f"<h1>{html.escape(str(content))}</h1>"
+                "</header>"
+            )
+            title_rendered = True
+        elif kind in ("h1", "h2"):
             parts.append(f"<{kind}>{html.escape(str(content))}</{kind}>")
         elif kind == "p":
             text = html.escape(str(content))
@@ -497,23 +606,40 @@ def render_html(blocks: list[Block], title: str) -> str:
         elif kind == "code":
             parts.append(f"<pre>{html.escape(str(content))}</pre>")
         elif kind == "table":
+            table_index += 1
             head, rows = content
             body = "".join(
                 "<tr>" + "".join(f"<td class='{_status_class(v)}'>{html.escape(str(v))}</td>" for v in row) + "</tr>"
                 for row in rows
             )
-            parts.append("<table><thead><tr>" + "".join(f"<th>{html.escape(str(h))}</th>" for h in head)
+            table_class = " class='report-meta'" if table_index == 1 else ""
+            parts.append(f"<table{table_class}><thead><tr>" + "".join(f"<th>{html.escape(str(h))}</th>" for h in head)
                          + f"</tr></thead><tbody>{body}</tbody></table>")
     style = (
-        "body{font:13px/1.55 'Noto Sans CJK SC','Microsoft YaHei',sans-serif;margin:24px;color:#1d2733}"
-        "h1{font-size:20px}h2{font-size:15px;margin-top:22px;border-bottom:1px solid #d6dee8}"
+        "*{box-sizing:border-box}"
+        "body{font:13px/1.55 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif;"
+        "margin:0;color:#1d2733}"
+        ".report-header{display:grid;grid-template-columns:180px 1fr;gap:22px;align-items:center;"
+        "padding:0 0 12px;border-bottom:2px solid #2d5873;margin-bottom:14px;break-inside:avoid}"
+        ".report-brand{min-width:0;border-left:4px solid #f47a00;padding-left:10px}"
+        ".report-logo{display:block;width:168px;max-height:42px;object-fit:contain;object-position:left center}"
+        ".report-product{margin-top:4px;color:#647888;font-size:9px;font-weight:700;"
+        "letter-spacing:.16em}"
+        "h1{font-size:20px;line-height:1.25;margin:0;text-align:right;color:#2d5873}"
+        "h2{font-size:15px;color:#2d5873;margin-top:22px;padding-bottom:3px;"
+        "border-bottom:1px solid #c8d5de;break-after:avoid}"
         "table{border-collapse:collapse;width:100%;margin:8px 0}"
+        ".report-meta{margin-top:0;break-inside:avoid}"
         "th,td{border:1px solid #d6dee8;padding:4px 6px;text-align:left;vertical-align:top}"
-        "th{background:#f1f5fa}pre{background:#f1f5fa;padding:8px;white-space:pre-wrap}"
+        "th{background:#edf3f6;color:#2d5873}"
+        "pre{background:#f1f5fa;padding:8px;white-space:pre-wrap;border-left:3px solid #f47a00}"
         ".PASS{color:#1a7f4b;font-weight:600}.FAIL{color:#b3261e;font-weight:600}.MISSING{color:#a15c00}"
         "@page{size:A4;margin:14mm}"
+        "@media print{.report-header,.report-meta,tr{break-inside:avoid}}"
     )
-    return (f"<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
+    html_language = "zh-CN" if language == "zh" else language
+    return (f"<!doctype html><html lang='{html_language}'><head><meta charset='utf-8'>"
+            f"<title>{html.escape(title)}</title>"
             f"<style>{style}</style></head><body>{''.join(parts)}</body></html>")
 
 
@@ -562,24 +688,46 @@ def write_archive(
 
     directory = archive_root / "Leader" / robot_id
     directory.mkdir(parents=True, exist_ok=True)
-    base = f"{robot_id}_OpenArmMini_基础测试记录"
-    revision = 1
-    while (directory / (f"{base}.md" if revision == 1 else f"{base}_R{revision:02d}.md")).exists():
-        revision += 1
+    base = f"{robot_id}_{REPORT_FILE_LABEL}"
+    revision = _next_archive_revision(directory, base)
     stem = base if revision == 1 else f"{base}_R{revision:02d}"
     suffix = "" if revision == 1 else f"_R{revision:02d}"
 
-    blocks, result = build_report(robot_id, side, records, motors, context, revision)
-    md_path = directory / f"{stem}.md"
-    html_path = directory / f"{stem}.html"
-    md_path.write_text(render_markdown(blocks), encoding="utf-8")
-    html_path.write_text(render_html(blocks, result["doc_id"]), encoding="utf-8")
-    pdf_path = directory / f"{stem}.pdf"
-    pdf_error = print_pdf(html_path, pdf_path)
-    if pdf_error:
-        (directory / f"{stem}_pdf_error.txt").write_text(pdf_error, encoding="utf-8")
+    files: list[Path] = []
+    reports: dict[str, dict[str, Any]] = {}
+    canonical_result: dict[str, Any] | None = None
+    for language in messages.LANGUAGES:
+        blocks, language_result = build_report(
+            robot_id, side, records, motors, context, revision, language
+        )
+        language_stem = f"{stem}_{language}"
+        md_path = directory / f"{language_stem}.md"
+        html_path = directory / f"{language_stem}.html"
+        pdf_path = directory / f"{language_stem}.pdf"
+        md_path.write_text(render_markdown(blocks), encoding="utf-8")
+        html_path.write_text(
+            render_html(blocks, language_result["doc_id"], language), encoding="utf-8"
+        )
+        pdf_error = print_pdf(html_path, pdf_path)
+        if pdf_error:
+            error_path = directory / f"{language_stem}_pdf_error.txt"
+            error_path.write_text(pdf_error, encoding="utf-8")
+            files.append(error_path)
+        files.extend([md_path, html_path] + ([pdf_path] if not pdf_error else []))
+        reports[language] = {
+            "language": language,
+            "doc_id": language_result["doc_id"],
+            "md": str(md_path),
+            "html": str(html_path),
+            "pdf": str(pdf_path) if not pdf_error else "",
+            "pdf_error": pdf_error,
+        }
+        if language == messages.DEFAULT_LANGUAGE:
+            canonical_result = language_result
 
-    files = [md_path, html_path] + ([pdf_path] if not pdf_error else [])
+    if canonical_result is None:  # pragma: no cover - LANGUAGES 始终包含 zh
+        raise RuntimeError("default report language is not configured")
+    result = canonical_result
     if session_file.is_file():
         target = directory / f"{robot_id}_OpenArmMini_会话日志{suffix}.jsonl"
         shutil.copyfile(session_file, target)
@@ -589,19 +737,40 @@ def write_archive(
         shutil.copyfile(calibration_file, target)
         files.append(target)
     gate_path = directory / f"{robot_id}_OpenArmMini_放行判定{suffix}.json"
-    gate_path.write_text(json.dumps({**result, "context": context}, ensure_ascii=False, indent=2),
+    gate_path.write_text(json.dumps({**result, "archive_revision": revision,
+                                     "reports": reports, "context": context,
+                                     "historical_anomalies": anomalies(records)},
+                                    ensure_ascii=False, indent=2),
                          encoding="utf-8")
     files.append(gate_path)
 
-    _append_index(archive_root, robot_id, side, result, md_path)
+    _append_index(archive_root, robot_id, side, result, Path(reports["zh"]["md"]))
+    pdf_errors = {language: report["pdf_error"] for language, report in reports.items()
+                  if report["pdf_error"]}
     return {
         "verdict": result["verdict"],
         "doc_id": result["doc_id"],
         "revision": revision,
         "directory": str(directory),
         "files": [str(f) for f in files],
-        "pdf_error": pdf_error,
+        "reports": reports,
+        "pdf_errors": pdf_errors,
+        "pdf_error": "; ".join(f"{language}: {error}" for language, error in pdf_errors.items()),
     }
+
+
+def _next_archive_revision(directory: Path, base: str) -> int:
+    """同时识别旧版单文件与新版分语言文件，旧修订永不覆盖。"""
+
+    pattern = re.compile(
+        rf"^{re.escape(base)}(?:_R(?P<revision>\d+))?(?:_(?:{'|'.join(messages.LANGUAGES)}))?\.md$"
+    )
+    revisions = []
+    for path in directory.glob(f"{base}*.md"):
+        match = pattern.fullmatch(path.name)
+        if match:
+            revisions.append(int(match.group("revision") or 1))
+    return max(revisions, default=0) + 1
 
 
 INDEX_HEADER = (

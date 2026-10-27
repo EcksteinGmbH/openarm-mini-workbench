@@ -36,6 +36,7 @@ from messages import m as _m
 WORKSTATION_VERSION = (
     (Path(__file__).resolve().parent.parent / "VERSION").read_text(encoding="utf-8").strip()
 )
+PROJECT_LEAD = "pengcheng"
 
 # 关节表。ID 与 J 编号一一对应，见官方 README「Motor IDs」。
 # key 是 LeRobot openarm_mini 驱动的电机名，改动会让校准文件核对失效。
@@ -2168,8 +2169,72 @@ def release_gate(robot_id: str) -> dict[str, Any]:
     return {"ok": True, "robot_id": robot_id, **gate.evaluate(read_session_records(robot_id), OPENARM_MINI_MOTORS)}
 
 
+def archived_report_path(robot_id: str, revision: int, language: str, file_format: str) -> Path:
+    """解析工作站可打开的归档报告；不接受任意路径。"""
+
+    validate_serial(robot_id)
+    if revision < 1:
+        raise ValueError(_m("report_not_found", name=f"R{revision:02d}"))
+    if language not in LANGUAGES:
+        raise ValueError(_m("report_invalid_language", language=language))
+    if file_format not in ("html", "pdf"):
+        raise ValueError(_m("report_invalid_format", format=file_format))
+    base = f"{robot_id}_{gate.REPORT_FILE_LABEL}"
+    stem = base if revision == 1 else f"{base}_R{revision:02d}"
+    path = _archive_root() / "Leader" / robot_id / f"{stem}_{language}.{file_format}"
+    if not path.is_file():
+        raise FileNotFoundError(_m("report_not_found", name=path.name))
+    return path
+
+
+def _add_report_urls(robot_id: str, revision: int, reports: dict[str, dict[str, Any]]) -> None:
+    for language, report in reports.items():
+        preferred_format = "pdf" if report.get("pdf") else "html"
+        base_url = f"/report?robot_id={robot_id}&revision={revision}&language={language}"
+        report["view_url"] = f"{base_url}&format={preferred_format}"
+        report["html_url"] = f"{base_url}&format=html"
+        report["pdf_url"] = f"{base_url}&format=pdf" if report.get("pdf") else ""
+
+
+def latest_archived_reports(robot_id: str) -> dict[str, Any]:
+    """返回最新的分语言报告，页面刷新后仍能直接打开。"""
+
+    validate_serial(robot_id)
+    directory = _archive_root() / "Leader" / robot_id
+    base = f"{robot_id}_{gate.REPORT_FILE_LABEL}"
+    pattern = re.compile(
+        rf"^{re.escape(base)}(?:_R(?P<revision>\d+))?_(?P<language>{'|'.join(LANGUAGES)})\.html$"
+    )
+    found: dict[int, dict[str, Path]] = {}
+    for path in directory.glob(f"{base}*_*.html") if directory.is_dir() else ():
+        match = pattern.fullmatch(path.name)
+        if not match:
+            continue
+        revision = int(match.group("revision") or 1)
+        found.setdefault(revision, {})[match.group("language")] = path
+    if not found:
+        return {"ok": True, "robot_id": robot_id, "revision": 0, "doc_id": "", "reports": {}}
+    revision = max(found)
+    reports: dict[str, dict[str, Any]] = {}
+    for language, html_path in found[revision].items():
+        pdf_path = html_path.with_suffix(".pdf")
+        reports[language] = {
+            "language": language,
+            "html": str(html_path),
+            "pdf": str(pdf_path) if pdf_path.is_file() else "",
+        }
+    _add_report_urls(robot_id, revision, reports)
+    return {
+        "ok": True,
+        "robot_id": robot_id,
+        "revision": revision,
+        "doc_id": gate.report_document_id(robot_id, side_of(robot_id)),
+        "reports": reports,
+    }
+
+
 def archive_robot(robot_id: str) -> dict[str, Any]:
-    """生成 test_reports/Leader/<编号>/ 归档。报告固定中文，与兄弟工站一致。"""
+    """生成 test_reports/Leader/<编号>/ 归档与三份独立语言报告。"""
 
     validate_serial(robot_id)
     records = read_session_records(robot_id)
@@ -2187,22 +2252,19 @@ def archive_robot(robot_id: str) -> dict[str, Any]:
         "lerobot": lerobot_version_info(executable) if executable else {},
         "calibration_file": str(calibration_path),
         "calibration": calibration,
+        "project_lead": PROJECT_LEAD,
     }
-    language = get_language()
-    set_language("zh")
-    try:
-        result = gate.write_archive(
-            _archive_root(),
-            robot_id,
-            side_of(robot_id),
-            records,
-            OPENARM_MINI_MOTORS,
-            context,
-            _session_dir() / f"{robot_id}.jsonl",
-            calibration_path,
-        )
-    finally:
-        set_language(language)
+    result = gate.write_archive(
+        _archive_root(),
+        robot_id,
+        side_of(robot_id),
+        records,
+        OPENARM_MINI_MOTORS,
+        context,
+        _session_dir() / f"{robot_id}.jsonl",
+        calibration_path,
+    )
+    _add_report_urls(robot_id, result["revision"], result["reports"])
     return {"ok": True, "robot_id": robot_id, **result}
 
 
@@ -2250,6 +2312,9 @@ INDEX_HTML = """<!doctype html>
     color: #fff; font-size: 14px; cursor: pointer; }
   button.ghost { background: #e6ecf4; color: var(--text); }
   button:disabled { opacity: .45; cursor: not-allowed; }
+  .report-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .report-links a { display: inline-block; padding: 7px 11px; border-radius: 7px;
+    background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
   .steps { display: grid; gap: 10px; }
   .step { display: flex; gap: 12px; align-items: center; padding: 10px 12px;
     border: 1px solid var(--line); border-radius: 9px; }
@@ -2471,6 +2536,7 @@ INDEX_HTML = """<!doctype html>
       <button class="ghost" id="btnExport" data-i18n="btn_export"></button>
     </div>
     <div id="gateResult"></div>
+    <div id="archiveResult"></div>
     <div id="exportResult"></div>
   </section>
 
@@ -2618,11 +2684,15 @@ const I18N = {
     col_mean: "均值",
     col_span_deg: "跨度",
     card_release_title: "S7 · 放行与归档",
-    card_release_hint: "放行门只看服务端会话日志：每项取最近一次记录，缺项为 HOLD。归档生成 <code>test_reports/Leader/&lt;编号&gt;/</code> 下的测试记录（md / html / pdf）、校准参数、会话日志和放行判定。",
+    card_release_hint: "放行门只看服务端会话日志：每项取最近一次记录，缺项为 HOLD。归档分别生成中文、英文、德文三份报告（md / html / pdf），完成后可在工作台直接打开。",
     btn_gate: "刷新放行门",
     btn_archive: "生成归档报告",
     archive_done: "已归档：{verdict} · {doc} · {dir}",
     archive_pdf_error: "PDF 未生成（已保留 md/html）：{error}",
+    latest_reports: "最新归档：{doc}",
+    open_report_zh: "打开中文报告",
+    open_report_en: "打开英文报告",
+    open_report_de: "打开德文报告",
     log_archived: "已归档 {doc}（{verdict}）",
     gate_verdict: "放行结论：{verdict}（通过 {pass} · 失败 {fail} · 缺项 {missing}）",
     col_stage: "阶段",
@@ -2772,11 +2842,15 @@ const I18N = {
     col_mean: "Mean",
     col_span_deg: "Span",
     card_release_title: "S7 · Release and archive",
-    card_release_hint: "The release gate only reads the server-side session log: the latest record counts for each item, missing items mean HOLD. Archiving writes the test record (md / html / pdf), calibration, session log and release verdict under <code>test_reports/Leader/&lt;serial&gt;/</code>.",
+    card_release_hint: "The release gate only reads the server-side session log: the latest record counts for each item, missing items mean HOLD. Archiving creates separate Chinese, English and German reports (md / html / pdf), which can then be opened directly from the workstation.",
     btn_gate: "Refresh release gate",
     btn_archive: "Generate archive report",
     archive_done: "Archived: {verdict} · {doc} · {dir}",
     archive_pdf_error: "No PDF generated (md/html kept): {error}",
+    latest_reports: "Latest archive: {doc}",
+    open_report_zh: "Open Chinese report",
+    open_report_en: "Open English report",
+    open_report_de: "Open German report",
     log_archived: "Archived {doc} ({verdict})",
     gate_verdict: "Release verdict: {verdict} (passed {pass} · failed {fail} · missing {missing})",
     col_stage: "Stage",
@@ -2927,11 +3001,15 @@ const I18N = {
     col_mean: "Mittelwert",
     col_span_deg: "Spanne",
     card_release_title: "S7 · Freigabe und Archiv",
-    card_release_hint: "Die Freigabe liest nur das serverseitige Sitzungsprotokoll: je Punkt zählt der letzte Eintrag, fehlende Punkte bedeuten HOLD. Das Archiv legt Prüfprotokoll (md / html / pdf), Kalibrierung, Sitzungsprotokoll und Freigabeentscheidung unter <code>test_reports/Leader/&lt;Seriennummer&gt;/</code> ab.",
+    card_release_hint: "Die Freigabe liest nur das serverseitige Sitzungsprotokoll: je Punkt zählt der letzte Eintrag, fehlende Punkte bedeuten HOLD. Die Archivierung erzeugt getrennte chinesische, englische und deutsche Berichte (md / html / pdf), die anschließend direkt am Prüfplatz geöffnet werden können.",
     btn_gate: "Freigabe aktualisieren",
     btn_archive: "Archivbericht erzeugen",
     archive_done: "Archiviert: {verdict} · {doc} · {dir}",
     archive_pdf_error: "Kein PDF erzeugt (md/html bleiben): {error}",
+    latest_reports: "Neuestes Archiv: {doc}",
+    open_report_zh: "Chinesischen Bericht öffnen",
+    open_report_en: "Englischen Bericht öffnen",
+    open_report_de: "Deutschen Bericht öffnen",
     log_archived: "Archiviert {doc} ({verdict})",
     gate_verdict: "Freigabeentscheidung: {verdict} (bestanden {pass} · fehlgeschlagen {fail} · fehlend {missing})",
     col_stage: "Stufe",
@@ -2951,12 +3029,14 @@ const S = {
   lastScan: null, calTimer: null, calSupport: undefined,
   detect: null, portSignature: "", portTimer: null,
   gate: null, gateTimer: null, identityOrder: [], identityCursor: 0, identityDone: new Set(),
+  reports: null, reportTimer: null,
 };
 const STAGE_KEYS = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'];
 const STAGE_LABELS = { S1: 'stage_station', S2: 'stage_ids', S3: 'stage_electrical', S4: 'stage_identity',
   S5: 'stage_calibration', S6: 'stage_readout', S7: 'stage_release' };
 const STATUS_LABELS = { PASS: 'status_pass', FAIL: 'status_fail', MISSING: 'status_missing' };
 const READOUT_MODES = { zero: 'readout_mode_zero', gripper_open: 'readout_mode_open', sweep: 'readout_mode_sweep' };
+const REPORT_LINK_LABELS = { zh: 'open_report_zh', en: 'open_report_en', de: 'open_report_de' };
 const SERIAL_RE = /^OAM[LR]\\d{8}\\d{2}$/;
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -3019,6 +3099,7 @@ function applyLanguage(lang) {
   $('btnComm').textContent = tf('btn_comm', { sec: commSec });
   $('btnIdentity').textContent = tf('btn_identity', { sec: idSec });
   renderStages();
+  renderArchivedReports();
 }
 
 // 请求期间把按钮置灰并显示已耗时。默认的广播 ping 约 8 秒，勾了深度扫描约 110 秒；
@@ -3093,6 +3174,33 @@ function renderGate() {
     '<table><tr><th>' + esc(tr('col_stage')) + '</th><th>' + esc(tr('col_item')) + '</th><th>' +
     esc(tr('col_result')) + '</th><th>' + esc(tr('col_time')) + '</th><th>' + esc(tr('col_note')) +
     '</th></tr>' + rows + '</table>';
+}
+function renderArchivedReports(message, kind) {
+  const data = S.reports;
+  if (!data || !Object.keys(data.reports || {}).length) {
+    $('archiveResult').innerHTML = '';
+    return;
+  }
+  const reportLinks = ['zh', 'en', 'de'].map((language) => data.reports[language]).filter(Boolean)
+    .map((report) => '<a href="' + esc(report.view_url) + '" target="_blank" rel="noopener">' +
+      esc(tr(REPORT_LINK_LABELS[report.language])) + '</a>').join('');
+  const heading = message || tf('latest_reports', { doc: data.doc_id });
+  const pdfError = data.pdf_error ? '<br/>' + esc(tf('archive_pdf_error', { error: data.pdf_error })) : '';
+  note('archiveResult', kind || 'info', esc(heading) +
+    '<div class="report-links">' + reportLinks + '</div>' + pdfError);
+}
+async function refreshArchivedReports() {
+  if (!SERIAL_RE.test(robotId())) {
+    S.reports = null;
+    renderArchivedReports();
+    return;
+  }
+  S.reports = await api('/api/reports?robot_id=' + encodeURIComponent(robotId()));
+  renderArchivedReports();
+}
+function scheduleReports() {
+  clearTimeout(S.reportTimer);
+  S.reportTimer = setTimeout(() => { refreshArchivedReports().catch(() => {}); }, 300);
 }
 function renderChecklist(stage) {
   const items = (S.config.checklists || {})[stage] || [];
@@ -3278,15 +3386,21 @@ $('langSelect').onchange = async () => {
 $('refreshPorts').onclick = () => detectPorts({ force: true }).catch((e) => log(e.message, 'bad'));
 $('showAllPorts').onchange = () => detectPorts({ force: true }).catch((e) => log(e.message, 'bad'));
 $('profile').onchange = updateSupplyNote;
-$('side').onchange = () => { $('robotId').value = ''; S.gate = null; renderStages(); renderGate(); };
-$('robotId').oninput = () => { S.doneMotors = new Set(); S.identityDone = new Set(); scheduleGate(); };
+$('side').onchange = () => {
+  $('robotId').value = ''; S.gate = null; S.reports = null;
+  renderStages(); renderGate(); renderArchivedReports();
+};
+$('robotId').oninput = () => {
+  S.doneMotors = new Set(); S.identityDone = new Set(); S.reports = null;
+  renderArchivedReports(); scheduleGate(); scheduleReports();
+};
 $('suggestSerial').onclick = () => withBusy('suggestSerial', async () => {
   try {
     const data = await api('/api/next-serial?side=' + encodeURIComponent($('side').value));
     $('robotId').value = data.robot_id;
     log(tf('log_suggested', { id: data.robot_id, count: data.known_count }), 'ok');
-    S.doneMotors = new Set(); S.identityDone = new Set();
-    scheduleGate();
+    S.doneMotors = new Set(); S.identityDone = new Set(); S.reports = null;
+    renderArchivedReports(); scheduleGate(); scheduleReports();
   } catch (e) { log(e.message, 'bad'); }
 });
 $('reconnectPort').onclick = () => withBusy('reconnectPort', async () => {
@@ -3601,12 +3715,12 @@ $('btnArchive').onclick = () => withBusy('btnArchive', async () => {
   try {
     if (!SERIAL_RE.test(robotId())) throw new Error(tr('err_need_serial'));
     const data = await api('/api/archive', { robot_id: robotId() });
-    note('exportResult', data.verdict === 'PASS' ? 'ok' : 'warn',
-      esc(tf('archive_done', { verdict: data.verdict, doc: data.doc_id, dir: data.directory })) +
-      '<br/>' + data.files.map((f) => '<code>' + esc(f.split('/').pop()) + '</code>').join(' ') +
-      (data.pdf_error ? '<br/>' + esc(tf('archive_pdf_error', { error: data.pdf_error })) : ''));
+    S.reports = data;
+    renderArchivedReports(
+      tf('archive_done', { verdict: data.verdict, doc: data.doc_id, dir: data.directory }),
+      data.verdict === 'PASS' ? 'ok' : 'warn');
     log(tf('log_archived', { doc: data.doc_id, verdict: data.verdict }), data.verdict === 'PASS' ? 'ok' : 'bad');
-  } catch (e) { note('exportResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
+  } catch (e) { note('archiveResult', 'bad', esc(e.message)); log(e.message, 'bad'); }
 });
 
 $('btnExport').onclick = () => withBusy('btnExport', async () => {
@@ -3633,7 +3747,7 @@ if (initialSerial) $('robotId').value = initialSerial;
 applyLanguage($('langSelect').value);
 loadConfig()
   .then(() => detectPorts({ force: true }))
-  .then(() => refreshGate())
+  .then(() => Promise.all([refreshGate(), refreshArchivedReports()]))
   .then(() => log(tr('log_ready')))
   .catch((e) => log(e.message, 'bad'));
 // 适配器插上或拔掉后不必点任何按钮，页面自己跟上。
@@ -3672,6 +3786,15 @@ class AppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _file(self, path: Path, content_type: str) -> None:
+        payload = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -3679,6 +3802,20 @@ class AppHandler(BaseHTTPRequestHandler):
 
         if parsed.path in ("/", "/index.html"):
             self._html(INDEX_HTML)
+            return
+        if parsed.path == "/report":
+            robot_id = (query.get("robot_id") or [""])[0].strip()
+            language = (query.get("language") or [""])[0].strip()
+            file_format = (query.get("format") or ["pdf"])[0].strip()
+            try:
+                revision = int((query.get("revision") or ["0"])[0])
+                path = archived_report_path(robot_id, revision, language, file_format)
+                content_type = "application/pdf" if file_format == "pdf" else "text/html; charset=utf-8"
+                self._file(path, content_type)
+            except FileNotFoundError as exc:
+                self._json({"ok": False, "error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+            except (TypeError, ValueError) as exc:
+                self._json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
         if parsed.path == "/api/ports":
             self._json({"ok": True, "ports": list_serial_ports()})
@@ -3781,6 +3918,13 @@ class AppHandler(BaseHTTPRequestHandler):
             robot_id = (query.get("robot_id") or [""])[0].strip()
             try:
                 self._json(release_gate(robot_id))
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/reports":
+            robot_id = (query.get("robot_id") or [""])[0].strip()
+            try:
+                self._json(latest_archived_reports(robot_id))
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return

@@ -1,0 +1,484 @@
+{
+  "verdict": "PASS",
+  "items": [
+    {
+      "stage": "S1",
+      "key": "S1.checklist",
+      "label": "准备检查表",
+      "status": "PASS",
+      "at": "2026-10-23T13:53:15+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.gripper.write",
+      "label": "J8 · 夹爪 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:53:41+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.gripper.rescan",
+      "label": "J8 · 夹爪 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:53:50+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.gripper.joint",
+      "label": "J8 · 夹爪 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:54:00+08:00",
+      "detail": "跨度 2038 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_7.write",
+      "label": "J7 · 腕部旋转 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:54:19+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_7.rescan",
+      "label": "J7 · 腕部旋转 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:54:26+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_7.joint",
+      "label": "J7 · 腕部旋转 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:54:34+08:00",
+      "detail": "跨度 833 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_6.write",
+      "label": "J6 · 腕部俯仰 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:54:54+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_6.rescan",
+      "label": "J6 · 腕部俯仰 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:55:02+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_6.joint",
+      "label": "J6 · 腕部俯仰 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:55:11+08:00",
+      "detail": "跨度 1256 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_5.write",
+      "label": "J5 · 前臂旋转 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:55:38+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_5.rescan",
+      "label": "J5 · 前臂旋转 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:55:45+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_5.joint",
+      "label": "J5 · 前臂旋转 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:55:54+08:00",
+      "detail": "跨度 928 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_4.write",
+      "label": "J4 · 肘部弯曲 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:56:05+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_4.rescan",
+      "label": "J4 · 肘部弯曲 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:56:12+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_4.joint",
+      "label": "J4 · 肘部弯曲 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:56:50+08:00",
+      "detail": "跨度 1464 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_3.write",
+      "label": "J3 · 肩部翻滚 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:57:13+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_3.rescan",
+      "label": "J3 · 肩部翻滚 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:57:21+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_3.joint",
+      "label": "J3 · 肩部翻滚 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:57:30+08:00",
+      "detail": "跨度 975 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_2.write",
+      "label": "J2 · 肩部抬升 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:58:46+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_2.rescan",
+      "label": "J2 · 肩部抬升 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:58:53+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_2.joint",
+      "label": "J2 · 肩部抬升 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:59:02+08:00",
+      "detail": "跨度 386 计数"
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_1.write",
+      "label": "J1 · 肩部旋转 写 ID",
+      "status": "PASS",
+      "at": "2026-10-23T13:59:15+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_1.rescan",
+      "label": "J1 · 肩部旋转 断电复扫",
+      "status": "PASS",
+      "at": "2026-10-23T13:59:20+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S2",
+      "key": "S2.joint_1.joint",
+      "label": "J1 · 肩部旋转 动关节确认",
+      "status": "PASS",
+      "at": "2026-10-23T13:59:29+08:00",
+      "detail": "跨度 755 计数"
+    },
+    {
+      "stage": "S3",
+      "key": "S3.scan",
+      "label": "八轴电气判定",
+      "status": "PASS",
+      "at": "2026-10-23T14:03:59+08:00",
+      "detail": "8/8 通过"
+    },
+    {
+      "stage": "S3",
+      "key": "S3.comm",
+      "label": "通信稳定",
+      "status": "PASS",
+      "at": "2026-10-23T14:05:02+08:00",
+      "detail": "11615 个通信轮询周期，失败 0"
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_1",
+      "label": "J1 · 肩部旋转 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:05:46+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_2",
+      "label": "J2 · 肩部抬升 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:06:03+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_3",
+      "label": "J3 · 肩部翻滚 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:06:15+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_4",
+      "label": "J4 · 肘部弯曲 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:06:28+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_5",
+      "label": "J5 · 前臂旋转 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:06:41+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_6",
+      "label": "J6 · 腕部俯仰 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:06:52+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.joint_7",
+      "label": "J7 · 腕部旋转 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:07:01+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S4",
+      "key": "S4.gripper",
+      "label": "J8 · 夹爪 关节身份",
+      "status": "PASS",
+      "at": "2026-10-23T14:07:11+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S5",
+      "key": "S5.precheck",
+      "label": "校准预检",
+      "status": "PASS",
+      "at": "2026-10-23T15:37:12+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S5",
+      "key": "S5.saved",
+      "label": "官方校准已保存",
+      "status": "PASS",
+      "at": "2026-10-23T15:38:32+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S5",
+      "key": "S5.verify",
+      "label": "一致性核对",
+      "status": "PASS",
+      "at": "2026-10-23T15:38:37+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S5",
+      "key": "S5.verify_power_cycled",
+      "label": "断电后再核对",
+      "status": "PASS",
+      "at": "2026-10-23T15:39:34+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S6",
+      "key": "S6.zero",
+      "label": "官方读数：零位",
+      "status": "PASS",
+      "at": "2026-10-23T15:39:43+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S6",
+      "key": "S6.gripper_open",
+      "label": "官方读数：夹爪张开",
+      "status": "PASS",
+      "at": "2026-10-23T15:40:29+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S6",
+      "key": "S6.sweep.joint_6",
+      "label": "官方读数：J6 · 腕部俯仰 扫动",
+      "status": "PASS",
+      "at": "2026-10-23T15:41:00+08:00",
+      "detail": ""
+    },
+    {
+      "stage": "S6",
+      "key": "S6.sweep.joint_7",
+      "label": "官方读数：J7 · 腕部旋转 扫动",
+      "status": "PASS",
+      "at": "2026-10-23T15:41:33+08:00",
+      "detail": ""
+    }
+  ],
+  "stages": {
+    "S1": "PASS",
+    "S2": "PASS",
+    "S3": "PASS",
+    "S4": "PASS",
+    "S5": "PASS",
+    "S6": "PASS",
+    "S7": "PASS",
+    "S8": "optional",
+    "S9": "optional"
+  },
+  "counts": {
+    "PASS": 43,
+    "FAIL": 0,
+    "MISSING": 0
+  },
+  "calibration_saved_at": "2026-10-23T15:38:32+08:00",
+  "criteria_version": "2026-10-21.3",
+  "doc_id": "OAM-R-BENCH-RESULT-OAMR2026102301-R01",
+  "language": "zh",
+  "operator": "xlc",
+  "project_lead": "pengcheng",
+  "archive_revision": 6,
+  "reports": {
+    "zh": {
+      "language": "zh",
+      "doc_id": "OAM-R-BENCH-RESULT-OAMR2026102301-R01",
+      "md": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_zh.md",
+      "html": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_zh.html",
+      "pdf": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_zh.pdf",
+      "pdf_error": ""
+    },
+    "en": {
+      "language": "en",
+      "doc_id": "OAM-R-BENCH-RESULT-OAMR2026102301-R01",
+      "md": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_en.md",
+      "html": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_en.html",
+      "pdf": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_en.pdf",
+      "pdf_error": ""
+    },
+    "de": {
+      "language": "de",
+      "doc_id": "OAM-R-BENCH-RESULT-OAMR2026102301-R01",
+      "md": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_de.md",
+      "html": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_de.html",
+      "pdf": "test_reports/Leader/OAMR2026102301/OAMR2026102301_OpenArmMini_基础测试记录_R06_de.pdf",
+      "pdf_error": ""
+    }
+  },
+  "context": {
+    "workstation_version": "0.10.0",
+    "criteria_version": "2026-10-21.3",
+    "lerobot": {
+      "version": "0.6.2",
+      "source": "https://github.com/huggingface/lerobot@eb7a54c6ff49",
+      "executable": "/home/ubuntu/Projects/openarmmini/.venv-lerobot/bin/lerobot-calibrate"
+    },
+    "calibration_file": "/home/ubuntu/.cache/huggingface/lerobot/calibration/teleoperators/openarm_mini/OAMR2026102301.json",
+    "calibration": {
+      "joint_1": {
+        "id": 1,
+        "drive_mode": 0,
+        "homing_offset": -727,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "joint_2": {
+        "id": 2,
+        "drive_mode": 0,
+        "homing_offset": 1622,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "joint_3": {
+        "id": 3,
+        "drive_mode": 0,
+        "homing_offset": -840,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "joint_4": {
+        "id": 4,
+        "drive_mode": 0,
+        "homing_offset": -266,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "joint_5": {
+        "id": 5,
+        "drive_mode": 0,
+        "homing_offset": -648,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "joint_6": {
+        "id": 6,
+        "drive_mode": 0,
+        "homing_offset": -875,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "joint_7": {
+        "id": 7,
+        "drive_mode": 0,
+        "homing_offset": -670,
+        "range_min": 0,
+        "range_max": 4095
+      },
+      "gripper": {
+        "id": 8,
+        "drive_mode": 1,
+        "homing_offset": -874,
+        "range_min": 366,
+        "range_max": 2047
+      }
+    },
+    "project_lead": "pengcheng"
+  },
+  "historical_anomalies": [
+    {
+      "at": "2026-10-23T14:05:17+08:00",
+      "action": "joint-identity",
+      "detail": "关节身份未通过：要求只动 J1 · 肩部旋转，但跨度最大的是 J1 · 肩部旋转（被测跨度 1015，次大 371）。若确实只动了这个关节，说明电机装错位或线接错。"
+    },
+    {
+      "at": "2026-10-23T14:05:30+08:00",
+      "action": "joint-identity",
+      "detail": "关节身份未通过：要求只动 J1 · 肩部旋转，但跨度最大的是 J1 · 肩部旋转（被测跨度 462，次大 210）。若确实只动了这个关节，说明电机装错位或线接错。"
+    },
+    {
+      "at": "2026-10-23T15:25:57+08:00",
+      "action": "verify-calibration",
+      "detail": ""
+    }
+  ]
+}

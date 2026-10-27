@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 test_reports/.sessions/
+test_reports/.history/
 .venv/
 .venv-lerobot*/
 
